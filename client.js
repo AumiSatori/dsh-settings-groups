@@ -736,7 +736,9 @@ window.__ModuleLoader__.load({
 				// contain:layout 把每个条目的重排圈在它自己内部 —— 多条目同时动画时，
 				// 少了它父容器要跟着重算 N 次，就是「卡」的主要来源之一。
 				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .22s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
-				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .22s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
+				// 收起单独用更陡的曲线：共享的 ease-out 尾巴太长，最后 10% 的时间只走 2% 的距离，
+				// 看起来就是"最后卡了一下"。收尾要干脆。
+				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .2s cubic-bezier(.4,.6,.35,1) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
 				// —— 管理页 ——
 				// 管理页是「我自己的页面」，可以用自己的设计语言（导航区还是得跟宿主灰调）：
 				// 大圆角卡片 + 超大标题 + 浅灰子卡片 + 紫蓝强调色 + 状态徽章。
@@ -2129,7 +2131,7 @@ window.__ModuleLoader__.load({
 						btn.style.display = "none";
 						delete btn.dataset.dsgAnim;
 						resetItemStyles(btn);
-					}, delay + ANIM_MS + 50);
+					}, delay + ANIM_MS + 16);
 				});
 			};
 
