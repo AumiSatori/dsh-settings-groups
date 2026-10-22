@@ -1786,7 +1786,12 @@ window.__ModuleLoader__.load({
 					setTick((v) => v + 1);
 				}, []);
 
-				const groups = state.groups;
+				// 管理页的分组顺序必须跟导航同源（topOrder），不能读 state.groups 的数组顺序 ——
+				// 拖拽只改 topOrder，读数组会看到「导航变了、页面没变」。
+				const groups = resolvedTopOrder()
+					.filter((x) => x.kind === "group")
+					.map((x) => groupById(x.id))
+					.filter((g) => g !== undefined);
 				const coreList = coreIds();
 				const loose = looseIds();
 				// 不按台账过滤：卸载的插件也要留在清单里，否则用户既看不到也删不掉，

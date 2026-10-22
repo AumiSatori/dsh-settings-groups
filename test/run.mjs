@@ -601,6 +601,19 @@ await page.waitForTimeout(450)
 const afterCardDrag = (await navOrder()).filter((x) => x.startsWith('[chip'))
 check('管理页卡片能拖动排序', cardDrag === 'ok' && afterCardDrag.indexOf('[chip:界面增强]') < afterCardDrag.indexOf('[chip:开发工具]'), `${cardDrag} ${afterCardDrag.join(' / ')}`)
 
+// 管理页的卡片顺序必须和左边导航一致 —— 它们读的要是同一份顺序，
+// 不然就会出现「导航拖了、页面没动」（管理页曾经读的是 groups 数组顺序）
+const orderParity = await page.evaluate(() => {
+	const navNames = [...document.querySelectorAll('[role="dialog"] > nav > div:last-child > .dsg-chip')]
+		.map((c) => c.children[1].textContent)
+		.filter((n) => n !== '未分组')
+	const cardNames = [...document.querySelectorAll('.dsg-page .dsg-card')]
+		.filter((c) => c.querySelector('.dsg-cardname') !== null)
+		.map((c) => c.querySelector('.dsg-cardname').textContent)
+	return { navNames, cardNames }
+})
+check('管理页顺序与导航一致', orderParity.navNames.join('|') === orderParity.cardNames.join('|'), `${orderParity.navNames.join('/')} vs ${orderParity.cardNames.join('/')}`)
+
 // ---- 9.8 搜索 ----
 const typeSearch = async (q) => {
 	await page.fill('.dsg-search-input', q)
