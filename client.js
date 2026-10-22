@@ -692,6 +692,9 @@ window.__ModuleLoader__.load({
 				".dsg-caret::before{content:\"\";display:block;width:5px;height:5px;border-right:1.7px solid currentColor;border-bottom:1.7px solid currentColor;border-radius:.5px;transform:rotate(-45deg);margin:0 0 0 -1px}",
 				".dsg-chip:hover .dsg-caret{opacity:.95}",
 				".dsg-chip[aria-expanded=\"true\"] .dsg-caret{transform:rotate(90deg) scale(1.15);opacity:1}",
+				// 组内条目缩进一级：宿主按钮的 padding 是 12px，这里推到 30px，
+				// 让它的图标落在分组标签文字的下方，层级一眼可见。
+				"[data-dsg-item][data-dsg-nest=\"1\"]{padding-left:30px !important}",
 				".dsg-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;letter-spacing:.01em}",
 				".dsg-count{flex:none;height:18px;line-height:18px;min-width:18px;text-align:center;padding:0 6px;border-radius:999px;background:rgba(127,127,127,.12);color:var(--dsw-alias-label-secondary,#8a8a8a);font-size:11px;font-weight:500;opacity:.9}",
 				".dsg-grip{flex:none;font-size:10px;opacity:0;cursor:grab;transition:opacity .15s ease}",
@@ -2035,7 +2038,10 @@ window.__ModuleLoader__.load({
 				for (const item of resolvedTopOrder()) {
 					if (item.kind === "core") {
 						const btn = refs.get(item.id);
-						if (btn !== undefined) seq.push(btn);
+						if (btn !== undefined) {
+							delete btn.dataset.dsgNest;
+							seq.push(btn);
+						}
 						continue;
 					}
 					const g = groupById(item.id);
@@ -2043,7 +2049,10 @@ window.__ModuleLoader__.load({
 					seq.push(ensureChip(g));
 					for (const id of entriesOf(g)) {
 						const btn = refs.get(id);
-						if (btn !== undefined) seq.push(btn);
+						if (btn === undefined) continue;
+						// 组内条目缩进一级，看得出"它在谁下面"
+						btn.dataset.dsgNest = "1";
+						seq.push(btn);
 					}
 				}
 				const loose = looseIds();
@@ -2056,7 +2065,9 @@ window.__ModuleLoader__.load({
 				}
 				for (const id of loose) {
 					const btn = refs.get(id);
-					if (btn !== undefined) seq.push(btn);
+					if (btn === undefined) continue;
+					delete btn.dataset.dsgNest;
+					seq.push(btn);
 				}
 				// 清掉已删除分组的 chip
 				const aliveGids = new Set(state.groups.map((g) => g.id));
