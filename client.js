@@ -602,8 +602,18 @@ window.__ModuleLoader__.load({
 				"[data-dsg-item]{transform-origin:center top;transition:background-color .15s ease,color .15s ease,opacity .2s ease,transform .26s cubic-bezier(.4,0,.2,1),filter .2s ease,height .26s cubic-bezier(.4,0,.2,1),padding-top .26s cubic-bezier(.4,0,.2,1),padding-bottom .26s cubic-bezier(.4,0,.2,1),margin-top .26s cubic-bezier(.4,0,.2,1),margin-bottom .26s cubic-bezier(.4,0,.2,1)}",
 				// 只在动画那一下提层，平时不占合成层
 				"[data-dsg-item][data-dsg-anim]{will-change:opacity,transform,filter,height}",
-				"[data-dsg-item][data-dsg-anim=\"in\"]{opacity:0;filter:blur(4px);transform:scale(.88) translateY(-8px)}",
-				"[data-dsg-item][data-dsg-anim=\"out\"]{opacity:0;filter:blur(4px);transform:scale(.88) translateY(-8px)}",
+				// ⚠️ 入场必须用 animation，不能用 transition。
+				// 条目收起后是 display:none，恢复显示的那一帧对浏览器来说是「元素刚出生」，
+				// 没有前值可插值 ⇒ transition 直接不跑，展开就成了瞬间出现（收起反而正常，
+				// 因为那时元素一直是可见的）。animation 不受这个限制。
+				// 目标高度通过 --dsg-h 传进来，因为 keyframes 里写不了 auto。
+				// 入场和退场都用 keyframes：四条属性写在同一条动画里，天然同步。
+				// 之前退场用 transition，opacity 立刻起步、height 要等双 rAF（~32ms）才动，
+				// 两段错开看着就是「卡一下」。
+				"@keyframes dsgItemIn{from{height:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}to{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}}",
+				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}to{height:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}}",
+				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box}",
+				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box}",
 				// —— 管理页 ——
 				".dsg-page{display:flex;flex-direction:column;gap:14px;box-sizing:border-box;width:100%;max-width:560px;min-width:0;font-size:13px}",
 				".dsg-card{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.18))}",
@@ -1132,96 +1142,63 @@ window.__ModuleLoader__.load({
 				btn.style.marginBottom = "";
 				btn.style.transitionDelay = "";
 				btn.style.transitionTimingFunction = "";
+				btn.style.animationDelay = "";
+				btn.style.removeProperty("--dsg-h");
 				delete btn.dataset.dsgAnim;
 			};
 
+			/**
+			 * 入场：keyframes 驱动（height + opacity + blur + transform 一条动画），
+			 * 不用 transition —— display:none 恢复的那一帧浏览器认为元素"刚出生"，
+			 * 没有前值可插值，transition 直接不跑。
+			 */
 			const animateIn = (list) => {
 				list.forEach((btn, i) => {
-					const delay = Math.min(i * 26, 130);
+					const delay = Math.min(i * 22, 110);
 					btn.style.display = "";
 					resetItemStyles(btn);
-					// 量自然高度：先清干净再测，避免上一轮残留把它压成 0
-					const natural = btn.getBoundingClientRect().height;
-					// getComputedStyle 返回的是活对象，改完 style 再读就变新值了 —— 必须先快照
-					const cs = getComputedStyle(btn);
-					const padTop = cs.paddingTop;
-					const padBottom = cs.paddingBottom;
-					// 锁到「塌缩态」：高度 0 + 内边距 0，配合 opacity/blur/scale 一起起步
-					btn.style.boxSizing = "border-box";
-					btn.style.overflow = "hidden";
-					btn.style.height = "0px";
-					btn.style.paddingTop = "0px";
-					btn.style.paddingBottom = "0px";
-					btn.style.marginTop = "0px";
-					btn.style.marginBottom = "0px";
+					const natural = Math.max(1, btn.getBoundingClientRect().height);
+					btn.style.setProperty("--dsg-h", `${Math.round(natural)}px`);
+					btn.style.animationDelay = `${delay}ms`;
+					// 同一个 animation 想重播，得先摘掉再挂回去，中间强制一次回流
+					delete btn.dataset.dsgAnim;
+					void btn.offsetWidth;
 					btn.dataset.dsgAnim = "in";
-					btn.style.transitionDelay = `${delay}ms`;
-					btn.style.transitionTimingFunction = ANIM_EASE;
-					// 双 rAF：等浏览器把「塌缩态」真正提交一帧，再放开 → 过渡才会跑
-					requestAnimationFrame(() => {
-						requestAnimationFrame(() => {
-							if (btn.dataset.dsgAnim !== "in") return;
-							btn.style.height = `${natural}px`;
-							btn.style.paddingTop = padTop === "0px" ? "" : padTop;
-							btn.style.paddingBottom = padBottom === "0px" ? "" : padBottom;
-							delete btn.dataset.dsgAnim;
-						});
-					});
 					setTimeout(() => {
-						// 高度回到自适应，否则侧栏一变宽、文字换行，高度就卡死在旧值
-						if (btn.dataset.dsgAnim === undefined) {
-							btn.style.height = "";
-							btn.style.overflow = "";
-							btn.style.boxSizing = "";
-							btn.style.paddingTop = "";
-							btn.style.paddingBottom = "";
-							btn.style.marginTop = "";
-							btn.style.marginBottom = "";
-						}
-						btn.style.transitionDelay = "";
-						btn.style.transitionTimingFunction = "";
-					}, delay + ANIM_MS + 90);
+						btn.style.animationDelay = "";
+						if (btn.dataset.dsgAnim !== "in") return;
+						// 先落到实际高度再撤属性：直接撤会让 height 从 40px 跳回 auto，
+						// 虽然值相同，但换行场景下会闪一下
+						btn.style.height = `${Math.round(natural)}px`;
+						delete btn.dataset.dsgAnim;
+						requestAnimationFrame(() => resetItemStyles(btn));
+					}, delay + ANIM_MS + 60);
 				});
 			};
 
+			/**
+			 * 退场：同样一条 keyframes 带全部属性。
+			 * 之前 opacity 走 transition 立刻起步、height 要等双 rAF 才动，
+			 * 错开 32ms 看着就是「停顿一下才塌」。
+			 */
 			const animateOut = (list) => {
 				list.forEach((btn, i) => {
-					const delay = Math.min(i * 12, 96);
-					const h = btn.getBoundingClientRect().height;
-					const cs = getComputedStyle(btn);
-					const padTop = cs.paddingTop;
-					const padBottom = cs.paddingBottom;
-					btn.style.boxSizing = "border-box";
-					btn.style.overflow = "hidden";
-					btn.style.height = `${h}px`;
-					btn.style.paddingTop = padTop;
-					btn.style.paddingBottom = padBottom;
-					btn.style.transitionDelay = `${delay}ms`;
-					btn.style.transitionTimingFunction = ANIM_EASE;
+					const delay = Math.min(i * 10, 70);
+					const h = Math.max(1, btn.getBoundingClientRect().height);
+					btn.style.setProperty("--dsg-h", `${Math.round(h)}px`);
+					btn.style.animationDelay = `${delay}ms`;
+					delete btn.dataset.dsgAnim;
+					void btn.offsetWidth;
 					btn.dataset.dsgAnim = "out";
-					// 双 rAF：先把「满高」提交一帧，再塌到 0，否则浏览器会把起始值当成 0
-					requestAnimationFrame(() => {
-						requestAnimationFrame(() => {
-							if (btn.dataset.dsgAnim !== "out") return;
-							btn.style.height = "0px";
-							btn.style.paddingTop = "0px";
-							btn.style.paddingBottom = "0px";
-							btn.style.marginTop = "0px";
-							btn.style.marginBottom = "0px";
-						});
-					});
 					setTimeout(() => {
-						// 期间若被重新展开，dataset 已被 animateIn 清掉 → 这里不隐藏
-						if (btn.dataset.dsgAnim === "out") {
-							btn.style.display = "none";
-							btn.style.height = "";
-							btn.style.overflow = "";
-							btn.style.boxSizing = "";
-							delete btn.dataset.dsgAnim;
-						}
-						btn.style.transitionDelay = "";
-						btn.style.transitionTimingFunction = "";
-					}, delay + ANIM_MS + 70);
+						btn.style.animationDelay = "";
+						// 期间若被重新展开，dataset 已经被 animateIn 改掉 → 这里不隐藏
+						if (btn.dataset.dsgAnim !== "out") return;
+						// 必须先 display:none 再撤动画，否则会闪回满高那一帧
+						btn.style.display = "none";
+						delete btn.dataset.dsgAnim;
+						resetItemStyles(btn);
+					}, delay + ANIM_MS + 50);
 				});
 			};
 
@@ -2046,6 +2023,20 @@ window.__ModuleLoader__.load({
 				".dsh-ptweak-header:active{cursor:grabbing}",
 			].join("\n");
 
+			/**
+			 * 取内容区。
+			 *
+			 * ⚠️ 不能直接 `nav.nextElementSibling` —— 侧栏分隔条是我们自己插在
+			 * nav 后面的，那样拿到的会是一条 6px 的空 div，切页动画就白播了。
+			 */
+			const ptContentOf = (panel) => {
+				const nav = panel.querySelector(":scope > nav");
+				if (nav === null) return null;
+				let el = nav.nextElementSibling;
+				while (el !== null && el.classList.contains("dsh-ptweak-split")) el = el.nextElementSibling;
+				return el;
+			};
+
 			/** 当前激活的设置页按钮（用来判断"换人了"）。 */
 			let ptLastActive = null;
 			/** 盯着 aria-current 变化的观察器，随插件一起销毁。 */
@@ -2056,8 +2047,7 @@ window.__ModuleLoader__.load({
 			 * 不加 fill-mode 的话动画一结束元素就回到无 filter 状态，不会一直待在合成层上。
 			 */
 			const ptPlayPageIn = (panel) => {
-				const nav = panel.querySelector(":scope > nav");
-				const content = nav === null ? null : nav.nextElementSibling;
+				const content = ptContentOf(panel);
 				if (content === null) return;
 				content.removeAttribute("data-dsg-page");
 				void content.offsetWidth;
@@ -2068,7 +2058,7 @@ window.__ModuleLoader__.load({
 			const ptDecorate = (panel) => {
 				if (panel.dataset.dshPtweak === "1") return;
 				const nav = panel.querySelector(":scope > nav");
-				const content = nav === null ? null : nav.nextElementSibling;
+				const content = ptContentOf(panel);
 				if (nav === null || content === null) return;
 				panel.dataset.dshPtweak = "1";
 				const saved = ptRead();
@@ -2097,7 +2087,12 @@ window.__ModuleLoader__.load({
 				if (savedNav !== null) setNavStyleW(ptClamp(savedNav, PT_MIN_NAV, 520));
 				split.addEventListener("dblclick", (ev) => {
 					ev.preventDefault();
+					// 复位要滑回去，不能瞬移（拖动过程中不加过渡，那是跟手）
+					nav.style.transition = "width .28s cubic-bezier(.2,.7,.3,1)";
 					nav.style.width = "";
+					setTimeout(() => {
+						nav.style.transition = "";
+					}, 320);
 					ptWrite({ navW: null });
 				});
 				split.addEventListener("pointerdown", (ev) => {
@@ -2138,7 +2133,12 @@ window.__ModuleLoader__.load({
 					header.classList.add("dsh-ptweak-header");
 					header.addEventListener("dblclick", (ev) => {
 						if (ev.target.closest(PT_HIT) !== null) return;
+						// 归位要滑，瞬移像"跳了一下"
+						panel.style.transition = "transform .3s cubic-bezier(.2,.7,.3,1)";
 						panel.style.transform = "";
+						setTimeout(() => {
+							panel.style.transition = "";
+						}, 340);
 						ptWrite({ dx: 0, dy: 0 });
 					});
 					header.addEventListener("pointerdown", (ev) => {
@@ -2183,8 +2183,12 @@ window.__ModuleLoader__.load({
 				panel.style.height = savedH !== null ? `${Math.max(300, savedH)}px` : PT_DEF_H;
 
 				const resetBox = () => {
+					panel.style.transition = "width .3s cubic-bezier(.2,.7,.3,1), height .3s cubic-bezier(.2,.7,.3,1)";
 					panel.style.width = PT_DEF_W;
 					panel.style.height = PT_DEF_H;
+					setTimeout(() => {
+						panel.style.transition = "";
+					}, 340);
 					ptWrite({ panelW: null, panelH: null });
 				};
 				for (const [dir, sx, sy] of [
@@ -2277,6 +2281,10 @@ window.__ModuleLoader__.load({
 					if (!(target instanceof Element)) return;
 					if (target.closest(".dsh-ptweak-split, .dsh-ptweak-rz, .dsh-ptweak-header") === null) return;
 					panel.style.willChange = "transform";
+					// 上一次复位的过渡如果还没跑完，这时的编辑会被它拖住 —— 直接掐断
+					panel.style.transition = "";
+					const navEl = panel.querySelector(":scope > nav");
+					if (navEl !== null) navEl.style.transition = "";
 				}, true);
 				const dropLayer = () => {
 					panel.style.willChange = "";

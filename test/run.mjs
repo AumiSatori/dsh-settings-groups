@@ -279,11 +279,22 @@ check('下方内容跟着上移', mid.midY < mid.y0, `未分组 top ${mid.y0} �
 check('收起过程中带模糊滤镜', /blur/.test(mid.filter), mid.filter)
 check('收起过程中带缩放位移', mid.transform !== 'none' && mid.transform !== 'matrix(1, 0, 0, 1, 0, 0)', mid.transform)
 await page.waitForTimeout(420)
-// 点回去，恢复原状态，别影响后面的断言
-await page.evaluate(() => {
-	[...document.querySelectorAll('.dsg-chip')].find((c) => c.children[1].textContent === '开发工具').click()
-})
-await page.waitForTimeout(420)
+// 展开也要有中间帧：撑开的过程中高度应该在长，而不是「瞬间出现」
+const expandMid = await page.evaluate(() => new Promise((resolve) => {
+	const chip = [...document.querySelectorAll('.dsg-chip')].find((c) => c.children[1].textContent === '开发工具')
+	const item = [...document.querySelectorAll('.nav-item')].find((b) => b.textContent.trim() === '语音朗读')
+	chip.click()
+	const samples = []
+	let n = 0
+	const tick = () => {
+		samples.push(Math.round(item.getBoundingClientRect().height))
+		if (++n < 6) setTimeout(tick, 35)
+		else resolve({ samples, display: item.style.display, inlineH: item.style.height })
+	}
+	setTimeout(tick, 40)
+}))
+check('展开过程中高度在增长', expandMid.samples.some((h) => h > 0 && h < 38), JSON.stringify(expandMid))
+await page.waitForTimeout(600)
 const backH = await page.evaluate(() => {
 	const item = [...document.querySelectorAll('.nav-item')].find((b) => b.textContent.trim() === '语音朗读')
 	return Math.round(item.getBoundingClientRect().height)
@@ -539,7 +550,8 @@ const clickSection = async (label) => {
 
 const readContentAnim = () => page.evaluate(() => {
 	const nav = document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] nav')
-	const content = nav.nextElementSibling
+	let content = nav.nextElementSibling
+	while (content !== null && content.classList.contains('dsh-ptweak-split')) content = content.nextElementSibling
 	return {
 		attr: content.getAttribute('data-dsg-page'),
 		filter: getComputedStyle(content).filter,
@@ -556,7 +568,8 @@ check('切页瞬间在模糊', pageSwitch.filter.includes('blur'), pageSwitch.fi
 await page.waitForTimeout(500)
 const pageIdle = await page.evaluate(() => {
 	const dialog = document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]')
-	const content = dialog.querySelector('nav').nextElementSibling
+	let content = dialog.querySelector('nav').nextElementSibling
+	while (content !== null && content.classList.contains('dsh-ptweak-split')) content = content.nextElementSibling
 	const cs = getComputedStyle(content)
 	return { filter: cs.filter, opacity: cs.opacity }
 })
@@ -588,6 +601,35 @@ const layerDuring = await page.evaluate(() => {
 })
 check('拖动时才提层', layerDuring.during === 'transform', JSON.stringify(layerDuring))
 check('松手后立刻撤层', layerDuring.after === '', JSON.stringify(layerDuring))
+
+// 双击复位要滑回去，不能瞬移
+const resetMotion = await page.evaluate(() => {
+	const dialog = document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]')
+	dialog.style.transform = 'translate3d(48px, 36px, 0)'
+	let content = dialog.querySelector('nav').nextElementSibling
+	while (content !== null && content.classList.contains('dsh-ptweak-split')) content = content.nextElementSibling
+	const header = content.firstElementChild
+	header.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+	return {
+		transition: getComputedStyle(dialog).transitionProperty,
+		hasTransition: dialog.style.transition.includes('transform'),
+		transform: dialog.style.transform,
+	}
+})
+check('复位时挂了 transform 过渡', resetMotion.hasTransition && resetMotion.transition.includes('transform'), JSON.stringify(resetMotion))
+check('复位后位移被清掉', resetMotion.transform === '', resetMotion.transform)
+
+// 拖动要掐断残留过渡，否则"跟手"会变成"追着跑"
+const dragClears = await page.evaluate(() => {
+	const dialog = document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]')
+	dialog.style.transition = 'transform 5s linear'
+	const split = document.querySelector('.dsh-ptweak-split')
+	split.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 9, clientX: 300, clientY: 300 }))
+	const during = dialog.style.transition
+	dialog.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 9 }))
+	return during
+})
+check('开始拖动时掐断残留过渡', dragClears === '', JSON.stringify(dragClears))
 
 // ---- 12. 旧插件配置迁移（省得重新配一遍）----
 await page.evaluate(async () => {
