@@ -3299,6 +3299,16 @@ window.__ModuleLoader__.load({
 				// 不写 fill-mode，动画一结束元素就回到没有 filter 的状态，不会常驻合成层。
 				"@keyframes dsgPageIn{from{opacity:.25;filter:blur(7px)}to{opacity:1;filter:blur(0)}}",
 				"[data-dsg-page=\"in\"]{animation:dsgPageIn .3s cubic-bezier(.22,.8,.26,1)}",
+				// smooth-option-switcher 的持久指示器思路，适配宿主的纵向、可变行高导航。
+				// 伪元素不进入 React 子节点列表，也不占空间或接管按钮语义。
+				"[data-dsg-switch-track]{position:relative;isolation:isolate}",
+				"[data-dsg-switch-track]::before{content:'';display:none;position:absolute;left:0;top:0;z-index:0;pointer-events:none;width:var(--dsg-switch-w,0px);height:var(--dsg-switch-h,0px);border-radius:var(--dsg-switch-radius,10px);background:var(--dsg-switch-bg,rgba(127,127,127,.12));opacity:0;transform:var(--dsg-switch-transform,translate(var(--dsg-switch-x,0px),var(--dsg-switch-y,0px)))}",
+				"[data-dsg-switch-track][data-dsg-switch-ready]::before{display:block;opacity:var(--dsg-switch-opacity,1)}",
+				"[data-dsg-switch-track][data-dsg-switch-motion]::before{transition:transform .28s cubic-bezier(.34,.96,.6,.99),width .28s cubic-bezier(.34,.96,.6,.99),height .28s cubic-bezier(.34,.96,.6,.99),opacity .12s ease}",
+				"[data-dsg-switch-track] > button{position:relative;z-index:1}",
+				"[data-dsg-switch-active]{background:transparent !important;transition-property:color,box-shadow !important}",
+				"[data-dsg-ghost] [data-dsg-switch-track]::before{transition:none !important}",
+				"@media(prefers-reduced-motion:reduce){[data-dsg-switch-track]::before{transition:none !important}[data-dsg-page=\"in\"]{animation:none !important}}",
 				".dsh-ptweak-header{cursor:grab;user-select:none}",
 				".dsh-ptweak-header:active{cursor:grabbing}",
 			].join("\n");
@@ -3350,7 +3360,10 @@ window.__ModuleLoader__.load({
 					scrolls.push({ path, ...offset });
 				}
 				ptLastRect = rect;
-				ptFrame = { panel, rect, regions, scrolls };
+				const track = nav.querySelector("[data-dsg-switch-track]");
+				const indicator = track ? getComputedStyle(track, "::before") : null;
+				const switcher = indicator ? { transform: indicator.transform, opacity: indicator.opacity, width: indicator.width, height: indicator.height } : null;
+				ptFrame = { panel, rect, regions, scrolls, switcher };
 			};
 
 			/** 真正卸载后冻结一份静态画面，整块同步淡出；重新打开时立即清掉旧快照。 */
@@ -3379,6 +3392,13 @@ window.__ModuleLoader__.load({
 						for (const [key, value] of region.styles) el.style.setProperty(key, value);
 						Object.assign(el.style, { boxSizing: "border-box", width: `${region.width}px`, height: `${region.height}px`, minWidth: "0", minHeight: "0", maxWidth: "none", maxHeight: "none", flex: "none" });
 					}
+					// 关闭发生在滑动中间时，也冻结指示器当前画面，避免快照跳到终点。
+					const track = ghost.querySelector("[data-dsg-switch-track]");
+					if (track && frame?.switcher) {
+						for (const [key, value] of Object.entries(frame.switcher)) {
+							track.style.setProperty(`--dsg-switch-${key === "width" ? "w" : key === "height" ? "h" : key}`, value);
+						}
+					}
 					const st = ghost.style;
 					Object.assign(st, { position: "fixed", inset: "auto", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, boxSizing: "border-box", margin: "0", transform: "none", scale: "none", translate: "none", rotate: "none", pointerEvents: "none", zIndex: "2147483000", transition: "none" });
 					st.setProperty("--dsg-exit-opacity", st.opacity || "1");
@@ -3399,10 +3419,87 @@ window.__ModuleLoader__.load({
 				} catch (_ignored) { /* 快照失败时正常关闭。 */ }
 			};
 
-			/** 当前激活的设置页按钮（用来判断"换人了"）。 */
-			let ptLastActive = null;
-			/** 盯着 aria-current 变化的观察器，随插件一起销毁。 */
-			let ptWatcher = null;
+			/** 指示器始终留在同一轨道，CSS transition 从当前帧接续反向切换。 */
+			let ptSwitch = null;
+			const ptSwitchMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+			const ptStopSwitch = () => {
+				if (!ptSwitch) return;
+				const job = ptSwitch;
+				ptSwitch = null;
+				cancelAnimationFrame(job.raf);
+				job.watch.disconnect(); job.resize.disconnect();
+				job.theme.disconnect();
+				ptSwitchMedia.removeEventListener("change", job.schedule);
+				for (const el of job.list.querySelectorAll("[data-dsg-switch-active]")) delete el.dataset.dsgSwitchActive;
+				for (const key of ["dsgSwitchTrack", "dsgSwitchReady", "dsgSwitchMotion"]) delete job.list.dataset[key];
+				for (const key of ["x", "y", "w", "h", "radius", "bg"]) job.list.style.removeProperty(`--dsg-switch-${key}`);
+			};
+			const ptEnsureSwitch = (panel) => {
+				const list = panel.querySelector(":scope > nav > div:last-child");
+				if (!list || ptSwitch?.list === list) return;
+				ptStopSwitch();
+				const job = { list, active: null, last: null, raf: 0, followUntil: 0, appearance: true, initialized: false };
+				ptSwitch = job;
+				list.dataset.dsgSwitchTrack = "1";
+				const update = () => {
+					job.raf = 0;
+					if (ptSwitch !== job || !list.isConnected) return;
+					const active = [...list.children].find((el) => el.tagName === "BUTTON" && !el.classList.contains("dsg-chip") && el.getAttribute("aria-current") && el.getAttribute("aria-current") !== "false") ?? null;
+					if (job.initialized && active && job.last !== active) ptPlayPageIn(panel);
+					job.initialized = true; job.last = active;
+					const box = active?.getBoundingClientRect();
+					const cs = active ? getComputedStyle(active) : null;
+					const visible = box && box.width > 0 && box.height > 1 && cs.visibility !== "hidden" && active.dataset.dsgAnim !== "out" && !active.dataset.dsgDragging;
+					if (!visible) {
+						delete list.dataset.dsgSwitchReady;
+						delete list.dataset.dsgSwitchMotion;
+						if (job.active) delete job.active.dataset.dsgSwitchActive;
+						job.active = null;
+					} else {
+						const bounds = list.getBoundingClientRect();
+						const sx = bounds.width / list.offsetWidth || 1, sy = bounds.height / list.offsetHeight || 1;
+						const geometry = Object.entries({ x: (box.left - bounds.left) / sx + list.scrollLeft - list.clientLeft, y: (box.top - bounds.top) / sy + list.scrollTop - list.clientTop, w: box.width / sx, h: box.height / sy }).map(([key, value]) => [`--dsg-switch-${key}`, `${value.toFixed(3)}px`]);
+						const followLayout = job.active === active && geometry.some(([key, value]) => list.style.getPropertyValue(key) !== value);
+						if (followLayout) delete list.dataset.dsgSwitchMotion;
+						if (job.active !== active || job.appearance) {
+							if (job.active) delete job.active.dataset.dsgSwitchActive;
+							// 临时停止宿主的背景过渡，读取它的最终选中色和圆角，然后原样还回。
+							const transition = active.style.getPropertyValue("transition"), priority = active.style.getPropertyPriority("transition");
+							active.style.setProperty("transition", "none", "important");
+							delete active.dataset.dsgSwitchActive;
+							const theme = getComputedStyle(active);
+							list.style.setProperty("--dsg-switch-bg", theme.backgroundColor === "rgba(0, 0, 0, 0)" ? "var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.12))" : theme.background);
+							list.style.setProperty("--dsg-switch-radius", theme.borderRadius);
+							active.dataset.dsgSwitchActive = "1";
+							if (transition) active.style.setProperty("transition", transition, priority);
+							else active.style.removeProperty("transition");
+							job.active = active; job.appearance = false;
+						}
+						for (const [key, value] of geometry) if (list.style.getPropertyValue(key) !== value) list.style.setProperty(key, value);
+						// 首次出现、搜索恢复不从坐标原点飞入；普通切换复用同一伪元素。
+						if (followLayout || !list.hasAttribute("data-dsg-switch-ready")) {
+							list.dataset.dsgSwitchReady = "1";
+							void getComputedStyle(list, "::before").transform;
+							list.dataset.dsgSwitchMotion = "1";
+						}
+					}
+					if (performance.now() < job.followUntil) job.schedule();
+				};
+				job.schedule = () => { if (!job.raf) job.raf = requestAnimationFrame(update); };
+				job.watch = new MutationObserver((mutations) => {
+					if (!mutations.some((m) => m.type === "childList" || m.target !== list || m.attributeName !== "style")) return;
+					// 高度动画会改变后面条目的位置，短暂逐帧对齐；平时没有轮询。
+					job.followUntil = performance.now() + (ptSwitchMedia.matches ? 0 : 300);
+					job.schedule();
+				});
+				job.watch.observe(list, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-current", "aria-expanded", "data-dsg-anim", "data-dsg-search", "data-dsg-hit", "data-dsg-dragging", "style", "class"] });
+				job.resize = new ResizeObserver(job.schedule);
+				job.resize.observe(list); job.resize.observe(panel);
+				job.theme = new MutationObserver(() => { job.appearance = true; job.schedule(); });
+				for (const el of [document.documentElement, document.body]) job.theme.observe(el, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+				ptSwitchMedia.addEventListener("change", job.schedule);
+				job.schedule();
+			};
 
 			/**
 			 * 内容区过渡：先摘掉标记、强制回流，再挂回去 —— 同一个 animation 才能重播。
@@ -3419,6 +3516,7 @@ window.__ModuleLoader__.load({
 			/** ① 侧栏右缘分隔条 ② 拖 header 移动面板 ③ 四边四角缩放；都是双击复位。 */
 			const ptDecorate = (panel) => {
 				delete panel.dataset.dsgGhosted;
+				ptEnsureSwitch(panel);
 				if (panel.dataset.dshPtweak === "1") return;
 				const nav = panel.querySelector(":scope > nav");
 				const content = ptContentOf(panel);
@@ -3629,23 +3727,6 @@ window.__ModuleLoader__.load({
 					});
 				}
 
-				// 切换左侧设置项 → 右侧内容区来一下淡入模糊。
-				// 内容区是宿主渲染的，唯一可靠的信号是左侧按钮的 aria-current 换人。
-				ptWatcher = new MutationObserver((mutations) => {
-					for (const m of mutations) {
-						if (m.type !== "attributes" || m.attributeName !== "aria-current") continue;
-						const el = m.target;
-						if (!(el instanceof Element) || el.tagName !== "BUTTON") continue;
-						const active = el.getAttribute("aria-current");
-						if (active === null || active === "false") continue;
-						if (ptLastActive === el) continue;
-						ptLastActive = el;
-						ptPlayPageIn(panel);
-						return;
-					}
-				});
-				ptWatcher.observe(panel, { subtree: true, attributes: true, attributeFilter: ["aria-current"] });
-
 				// 只在真的拖/缩时才把面板提为合成层，松手立刻撤。
 				// 常驻 will-change 会让整个设置面板一直走 GPU 光栅化，文字丢掉次像素渲染
 				// —— 那就是"装上补丁之后设置变糊"的来源。
@@ -3712,6 +3793,8 @@ window.__ModuleLoader__.load({
 						} catch (error) {
 							console.warn("[dsh-settings-groups] panel tweak failed", error);
 						}
+					} else {
+						ptStopSwitch();
 					}
 				}, 0);
 			});
@@ -3759,10 +3842,7 @@ window.__ModuleLoader__.load({
 					window.visualViewport?.removeEventListener("resize", fitViewport);
 					if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
 					ptObserver.disconnect();
-					if (ptWatcher !== null) {
-						ptWatcher.disconnect();
-						ptWatcher = null;
-					}
+					ptStopSwitch();
 					if (ptRectObs !== null) {
 						ptRectObs.disconnect();
 						ptRectObs = null;

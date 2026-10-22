@@ -1416,6 +1416,124 @@ await dragPage.waitForTimeout(80)
 check('减少动态效果时排序立即生效并跳过补位动画', (await pinIds())[1] === 'account' && await dragPage.evaluate(() => !document.getAnimations().some((a) => a.id === 'dsg-page-reorder')))
 await dragContext.close()
 
+// ---- 16. 设置功能切换：共享选中块的中间帧、反向、布局变化和清理 ----
+const switchContext = await browser.newContext({ viewport: { width: 1000, height: 960 } })
+const switchPage = await switchContext.newPage()
+switchPage.on('pageerror', (error) => errors.push(String(error)))
+await page.evaluate(() => fetch('/__reset'))
+await switchPage.addInitScript(() => localStorage.setItem('dsh.settingsGroups.v1', JSON.stringify({ v: 1, enabled: true, updatedAt: Date.now(),
+	groups: [{ id: 'motion', name: '外观功能', entries: ['dsh-meme', 'dsh-remotion'], open: true }], hidden: [], loose: [],
+})))
+await switchPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' })
+await switchPage.waitForTimeout(500)
+const switchState = () => switchPage.evaluate(() => {
+	const list = document.querySelector('[data-dsg-switch-track]')
+	const active = list?.querySelector('[data-dsg-switch-active]')
+	if (!list || !active) return { visible: false }
+	const cs = getComputedStyle(list, '::before'), r = list.getBoundingClientRect(), a = active.getBoundingClientRect()
+	const m = new DOMMatrixReadOnly(cs.transform), sx = r.width / list.offsetWidth, sy = r.height / list.offsetHeight
+	const x = r.left + (m.m41 - list.scrollLeft + list.clientLeft) * sx
+	const y = r.top + (m.m42 - list.scrollTop + list.clientTop) * sy
+	return { visible: Number(cs.opacity) > .9, y: m.m42, target: (a.top - r.top) / sy + list.scrollTop - list.clientTop,
+		error: Math.max(Math.abs(x - a.left), Math.abs(y - a.top), Math.abs(parseFloat(cs.width) * sx - a.width), Math.abs(parseFloat(cs.height) * sy - a.height)),
+		bg: cs.backgroundColor, activeBg: getComputedStyle(active).backgroundColor, active: active.dataset.section, transition: cs.transitionDuration,
+		tracks: document.querySelectorAll('[data-dsg-switch-track]').length }
+})
+const initialSwitch = await switchState()
+check('设置选中块首帧对齐且不增加导航节点', initialSwitch.visible && initialSwitch.error < 1 && initialSwitch.tracks === 1 && await switchPage.locator('#navlist > button').count() === 15, JSON.stringify(initialSwitch))
+check('选中块沿用宿主底色且按钮没有双重底色', initialSwitch.bg === 'rgba(0, 0, 0, 0.08)' && initialSwitch.activeBg === 'rgba(0, 0, 0, 0)', JSON.stringify(initialSwitch))
+await switchPage.locator('nav [data-section="models"]').hover()
+check('悬浮功能按钮不会改变当前选择', (await switchState()).active === 'general' && (await switchState()).error < 1)
+await switchPage.mouse.move(800, 50)
+await switchPage.locator('nav [data-section="models"]').evaluate((el) => el.click())
+await switchPage.waitForTimeout(70)
+const switchMid = await switchState()
+check('切换功能时底块真正滑过中间位置', switchMid.y > initialSwitch.y + 1 && switchMid.y < switchMid.target - 1, JSON.stringify(switchMid))
+check('滑动中宿主按钮不再叠加背景动画', switchMid.activeBg === 'rgba(0, 0, 0, 0)', JSON.stringify(switchMid))
+await switchPage.locator('nav [data-section="general"]').evaluate((el) => el.click())
+await switchPage.waitForTimeout(40)
+const switchReverse = await switchState()
+check('快速反向从当前位置返回且只有一个底块', switchReverse.y > initialSwitch.y && switchReverse.y < switchMid.y && switchReverse.tracks === 1, JSON.stringify(switchReverse))
+await switchPage.waitForTimeout(330)
+check('反向切换结束后精确落在当前功能', (await switchState()).error < 1, JSON.stringify(await switchState()))
+await switchPage.locator('nav [data-section="models"]').focus()
+await switchPage.keyboard.press('Enter')
+await switchPage.waitForTimeout(330)
+const keyboardSwitch = await switchState()
+check('键盘激活继续走宿主操作且选中块同步', keyboardSwitch.active === 'models' && keyboardSwitch.error < 1 && await switchPage.locator('nav [data-section="models"]').evaluate((el) => el === document.activeElement), JSON.stringify(keyboardSwitch))
+await switchPage.evaluate(async () => {
+	for (let i = 0; i < 10; i++) for (const id of ['general', 'models']) {
+		document.querySelector(`nav [data-section="${id}"]`).click()
+		await new Promise((r) => setTimeout(r, 25))
+	}
+})
+await switchPage.waitForTimeout(340)
+check('十次快速往返后最终选择与底块一致', (await switchState()).active === 'models' && (await switchState()).error < 1, JSON.stringify(await switchState()))
+await switchPage.locator('nav [data-section="dsh-meme"]').evaluate((el) => el.click())
+await switchPage.waitForTimeout(340)
+await switchPage.locator('nav .dsg-chip[data-dsg-gid="motion"]').click()
+await switchPage.waitForTimeout(320)
+check('折叠当前功能所在分组时隐藏选中块', await switchPage.locator('[data-dsg-switch-ready]').count() === 0)
+await switchPage.locator('nav .dsg-chip[data-dsg-gid="motion"]').click()
+await switchPage.waitForTimeout(370)
+check('展开分组后选中块恢复并对齐', (await switchState()).visible && (await switchState()).error < 1, JSON.stringify(await switchState()))
+await switchPage.locator('.dsg-search input').fill('不存在的功能')
+await switchPage.waitForTimeout(80)
+check('搜索过滤掉当前功能后无残留底块', await switchPage.locator('[data-dsg-switch-ready]').count() === 0)
+const emptySearchScroll = await switchPage.locator('#navlist').evaluate((list) => {
+	const previous = list.style.cssText
+	list.style.flex = 'none'; list.style.height = '120px'
+	const result = { height: list.clientHeight, scroll: list.scrollHeight }
+	list.style.cssText = previous
+	return result
+})
+check('隐藏的选中块不会撑出空白滚动区域', emptySearchScroll.scroll === emptySearchScroll.height, JSON.stringify(emptySearchScroll))
+await switchPage.locator('.dsg-search input').fill('')
+await switchPage.waitForTimeout(100)
+check('清除搜索后底块直接恢复到当前项', (await switchState()).error < 1, JSON.stringify(await switchState()))
+await switchPage.evaluate(() => {
+	const list = document.querySelector('#navlist')
+	list.style.flex = 'none'; list.style.height = '210px'; list.scrollTop = 150
+})
+await switchPage.waitForTimeout(100)
+check('导航滚动后底块和按钮仍在同一坐标', (await switchState()).error < 1, JSON.stringify(await switchState()))
+await switchPage.setViewportSize({ width: 600, height: 520 })
+await switchPage.waitForTimeout(350)
+check('窄窗口和侧栏变宽后底块尺寸仍对齐', (await switchState()).error < 1, JSON.stringify(await switchState()))
+await switchPage.evaluate(() => {
+	const style = document.createElement('style')
+	style.textContent = 'body[data-theme="dark"] .nav-item[aria-current="true"]{background:rgb(70,75,85)}'
+	document.head.appendChild(style); document.body.dataset.theme = 'dark'
+})
+await switchPage.waitForTimeout(100)
+check('主题变化会更新选中底色', (await switchState()).bg === 'rgb(70, 75, 85)', JSON.stringify(await switchState()))
+await switchPage.emulateMedia({ reducedMotion: 'reduce' })
+await switchPage.locator('nav [data-section="account"]').evaluate((el) => el.click())
+await switchPage.waitForTimeout(60)
+const reducedSwitch = await switchState()
+check('减少动态效果时功能切换立即对齐且正文不动画', reducedSwitch.error < 1 && reducedSwitch.transition === '0s' && await switchPage.locator('#content').evaluate((el) => getComputedStyle(el).animationName === 'none'), JSON.stringify(reducedSwitch))
+await switchPage.emulateMedia({ reducedMotion: 'no-preference' })
+await switchPage.evaluate(() => document.getElementById('btn-rerender').click())
+await switchPage.waitForTimeout(550)
+check('宿主重建导航后只恢复一份选中块', (await switchState()).tracks === 1 && (await switchState()).error < 1, JSON.stringify(await switchState()))
+const frozenSwitcher = await switchPage.evaluate(async () => {
+	const list = document.querySelector('#navlist')
+	list.querySelector('[data-section="models"]').click()
+	await new Promise((r) => setTimeout(r, 60))
+	const before = new DOMMatrixReadOnly(getComputedStyle(list, '::before').transform).m42
+	document.getElementById('btn-open').click()
+	await new Promise((r) => setTimeout(r, 35))
+	const ghostList = document.querySelector('[data-dsg-ghost] [data-dsg-switch-track]')
+	return { before, frozen: ghostList ? new DOMMatrixReadOnly(getComputedStyle(ghostList, '::before').transform).m42 : null }
+})
+check('滑动中关闭设置时快照冻结底块而不跳到终点', frozenSwitcher.frozen !== null && Math.abs(frozenSwitcher.before - frozenSwitcher.frozen) < 1, JSON.stringify(frozenSwitcher))
+await switchPage.waitForTimeout(350)
+await switchPage.evaluate(() => document.getElementById('btn-open').click())
+await switchPage.waitForTimeout(500)
+await switchPage.evaluate(() => { for (const fn of window.__effectCleanups) if (typeof fn === 'function') fn() })
+check('停用插件后清除指示器和按钮背景覆盖', await switchPage.locator('[data-dsg-switch-track], [data-dsg-switch-active]').count() === 0)
+await switchContext.close()
+
 check('全程无 JS 报错', errors.length === 0, errors.slice(0, 3).join(' | '))
 
 await page.screenshot({ path: join(HERE, 'shot-final.png'), fullPage: false })

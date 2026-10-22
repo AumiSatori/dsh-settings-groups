@@ -45,6 +45,12 @@ node scripts/profile.mjs uninstall --profile desktop
 
 装完**重启 DSH**（宿主端要加载新插件）。只改 `client.js` 的话，窗口里 `Ctrl+R` 就够。
 
+### 0.1.10：设置功能平滑切换
+
+左侧功能共用一个持久选中底块，点击时用 280ms 过渡滑到新位置，快速反向点击从当前画面接续。沿用宿主选中色、圆角和原按钮的键盘操作；分组收起、搜索过滤、滚动、主题与侧栏尺寸变化时自动对齐。滑动中关闭设置会冻结底块位置，开启「减少动态效果」时立即切换。
+
+交互参考 [smooth-option-switcher](https://github.com/zhoulinhua0-star/smooth-option-switcher) 的 skill，按 DSH 的纵向导航与不同条目高度独立适配；保留宿主按钮状态，以共享伪元素实现指示器，没有增加运行时依赖。
+
 ### 0.1.9：设置关闭同步退场
 
 关闭时改为整块面板同步淡出，约 180ms，无延迟、不缩放文字。快照冻结导航和正文的尺寸、样式、滚动位置及内部动画，清除切页入场标记，避免右侧重播、回顶或重新排版。移动仍连接的面板不会被当成关闭；快速重开立即清除旧快照，开启「减少动态效果」时直接关闭。
@@ -147,7 +153,7 @@ node scripts/profile.mjs uninstall --profile desktop
 
 ```sh
 npm i -D playwright react@18 react-dom@18   # 只有跑测试才需要
-node test/run.mjs            # 真 Chromium 跑 163 项断言
+node test/run.mjs            # 真 Chromium 跑 184 项断言
 node test/host.mjs           # 宿主端路由单测（10 项，不启 DSH）
 node test/record.mjs         # 重新录 README 的动图（要 ffmpeg）
 ```
