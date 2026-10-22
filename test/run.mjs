@@ -1081,7 +1081,18 @@ check('快照出现时真面板已消失', ghostState.origin === true, String(gh
 check('内容区先播退场', ghostState.contentAnim === 'dsgContentOut', String(ghostState.contentAnim))
 check('整框退场带延迟', parseFloat(ghostState.panelDelay) > 0, String(ghostState.panelDelay))
 
-await page.waitForTimeout(700)
+// 内容区先结束，其 animationend 会冒泡；整框必须继续播完自己的退场。
+const afterContentOut = await page.evaluate(async () => {
+	const ghost = document.querySelector('[data-dsg-ghost="1"]')
+	if (ghost === null) return false
+	let content = ghost.querySelector('nav').nextElementSibling
+	while (content !== null && content.classList.contains('dsh-ptweak-split')) content = content.nextElementSibling
+	content?.dispatchEvent(new AnimationEvent('animationend', { bubbles: true, animationName: 'dsgContentOut' }))
+	await new Promise((r) => setTimeout(r, 170))
+	return ghost.isConnected
+})
+check('内容退场结束不会提前删掉整框', afterContentOut)
+await page.waitForTimeout(530)
 check('快照会自毁', (await page.evaluate(() => document.querySelector('[data-dsg-ghost="1"]') === null)))
 
 
@@ -1144,6 +1155,70 @@ await page.reload({ waitUntil: 'load' })
 await page.waitForTimeout(600)
 const afterSecondReload = await page.evaluate(() => JSON.parse(localStorage.getItem('dsh.settingsGroups.v1') ?? '{}').groups?.length ?? 0)
 check('再次启动不会重复迁移', afterSecondReload === 2, `${afterSecondReload} 组`)
+
+// ---- 13. 多条目性能与快速反向：验证真实布局次数和最终画面 ----
+await page.evaluate(async () => {
+	await fetch('/__reset')
+	localStorage.clear()
+	const entries = window.__ledger.filter((e) => e.name === 'settings.section' && (e.options.order ?? 0) >= 100).map((e) => e.options.id)
+	localStorage.setItem('dsh.settingsGroups.v1', JSON.stringify({
+		v: 1, enabled: true, updatedAt: Date.now(),
+		groups: [{ id: 'motion', name: '动画回归', entries, open: true }], loose: [], hidden: [],
+	}))
+})
+await page.reload({ waitUntil: 'load' })
+await page.waitForTimeout(600)
+const cdp = await page.context().newCDPSession(page)
+await cdp.send('Performance.enable')
+const layoutCount = async () => (await cdp.send('Performance.getMetrics')).metrics.find((m) => m.name === 'LayoutCount').value
+const layoutCosts = []
+for (let i = 0; i < 2; i += 1) {
+	const before = await layoutCount()
+	await page.evaluate(() => document.querySelector('.dsg-chip').click())
+	layoutCosts.push((await layoutCount()) - before)
+	await page.waitForTimeout(400)
+}
+check('多条目展开收起批量布局', layoutCosts.every((n) => n <= 3), `收起/展开 ${JSON.stringify(layoutCosts)} 次`)
+const rapidReverse = await page.evaluate(async () => {
+	const chip = document.querySelector('.dsg-chip')
+	const items = [...document.querySelectorAll('[data-dsg-item]')].filter((el) => el.dataset.dsgNest === '1')
+	const pause = (ms) => new Promise((r) => setTimeout(r, ms))
+	const read = () => ({ expanded: chip.getAttribute('aria-expanded'), visible: items.every((b) => b.style.display !== 'none' && b.getBoundingClientRect().height > 0), hidden: items.every((b) => b.style.display === 'none'), clean: items.every((b) => b.dataset.dsgAnim === undefined) })
+	chip.click()
+	await pause(60)
+	const before = items[0].getBoundingClientRect().height
+	chip.click()
+	const after = items[0].getBoundingClientRect().height
+	await pause(400)
+	const reopened = read()
+	chip.click()
+	await pause(400)
+	chip.click()
+	await pause(60)
+	chip.click()
+	await pause(400)
+	const reclosed = read()
+	chip.click()
+	await pause(400)
+	// 多次反向要取消旧回调，最终遵循最后一次点击。
+	for (let i = 0; i < 4; i += 1) { chip.click(); await pause(35) }
+	await pause(400)
+	return { count: items.length, jump: Math.abs(after - before), reopened, reclosed, repeated: read() }
+})
+check('性能场景覆盖多个条目', rapidReverse.count >= 7, `${rapidReverse.count} 项`)
+check('反向从当前高度继续', rapidReverse.jump <= 2, `跳变 ${rapidReverse.jump.toFixed(2)}px`)
+check('收起途中再展开保持可见', rapidReverse.reopened.expanded === 'true' && rapidReverse.reopened.visible && rapidReverse.reopened.clean, JSON.stringify(rapidReverse.reopened))
+check('展开途中再收起保持隐藏', rapidReverse.reclosed.expanded === 'false' && rapidReverse.reclosed.hidden && rapidReverse.reclosed.clean, JSON.stringify(rapidReverse.reclosed))
+check('反复连点后没有旧回调覆盖状态', rapidReverse.repeated.expanded === 'true' && rapidReverse.repeated.visible && rapidReverse.repeated.clean, JSON.stringify(rapidReverse.repeated))
+await page.emulateMedia({ reducedMotion: 'reduce' })
+const reduced = await page.evaluate(async () => {
+	document.querySelector('.dsg-chip').click()
+	await new Promise((r) => setTimeout(r, 80))
+	return [...document.querySelectorAll('[data-dsg-nest="1"]')].every((b) => b.style.display === 'none' && b.dataset.dsgAnim === undefined)
+})
+check('减少动态效果时立即完成并清理', reduced)
+await page.emulateMedia({ reducedMotion: 'no-preference' })
+await cdp.detach()
 
 check('全程无 JS 报错', errors.length === 0, errors.slice(0, 3).join(' | '))
 

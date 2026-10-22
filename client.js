@@ -706,39 +706,22 @@ window.__ModuleLoader__.load({
 				"[data-dsg-drop=\"before\"]{box-shadow:inset 0 2px 0 0 var(--dsg-accent,#4a7cf5)}",
 				"[data-dsg-drop=\"after\"]{box-shadow:inset 0 -2px 0 0 var(--dsg-accent,#4a7cf5)}",
 				"[data-dsg-dragging=\"1\"]{opacity:.4}",
-				// —— 条目展开 / 收起：下拉 + 缩放 + 模糊 ——
+				// —— 条目展开 / 收起：高度 + 淡入淡出 + 轻微位移 ——
 				// height / padding / margin 也一起过渡，否则条目淡出后下面的内容
 				// 会「啪」地往上跳一格（这才是收起动画最容易露馅的地方）。
 				// 顺带把宿主原本的 hover 底色过渡带上，免得覆盖掉它自己那套手感。
-				"[data-dsg-item]{transform-origin:center top;transition:background-color .15s ease,color .15s ease,opacity .2s ease,transform .26s cubic-bezier(.4,0,.2,1),filter .2s ease,height .26s cubic-bezier(.4,0,.2,1),padding-top .26s cubic-bezier(.4,0,.2,1),padding-bottom .26s cubic-bezier(.4,0,.2,1),margin-top .26s cubic-bezier(.4,0,.2,1),margin-bottom .26s cubic-bezier(.4,0,.2,1)}",
+				// 超出列表时滚动，避免 flex 再次压缩动画行高、结束时突然弹回。
+				"[data-dsg-item]{flex-shrink:0;transform-origin:center top;transition:background-color .15s ease,color .15s ease}",
 				// 只在动画那一下提层，平时不占合成层
-				"[data-dsg-item][data-dsg-anim]{will-change:opacity,transform,filter,height}",
-				// ⚠️ 入场必须用 animation，不能用 transition。
-				// 条目收起后是 display:none，恢复显示的那一帧对浏览器来说是「元素刚出生」，
-				// 没有前值可插值 ⇒ transition 直接不跑，展开就成了瞬间出现（收起反而正常，
-				// 因为那时元素一直是可见的）。animation 不受这个限制。
-				// 目标高度通过 --dsg-h 传进来，因为 keyframes 里写不了 auto。
-				// 入场和退场都用 keyframes：四条属性写在同一条动画里，天然同步。
-				// 之前退场用 transition，opacity 立刻起步、height 要等双 rAF（~32ms）才动，
-				// 两段错开看着就是「卡一下」。
-				// ⚠️ 收起之所以会「塌不下去、留一块空位、最后一瞬消失」：
-				// box-sizing:border-box 下 height:0 也压不平 —— 上下 padding 会顶住，
-				// 宿主的按钮若还有 min-height，更是直接卡在几十像素。
-				// 所以 padding 也要进 keyframes，min-height 在动画期间强制归零。
-				// ⚠️ padding **不要**放进 keyframes。padding 每帧都会重算布局，和 height 叠加
-				// 之后整条动画明显发涩（实测主人反馈"收回下拉都卡"）。改成动画前一次性归零，
-				// 只让 height 走动画 —— 塌得干净，也不拖帧。
-				// 只留三种最便宜的属性：height（重排，躲不掉）、opacity、translateY（合成层）。
-				// 之前还有 filter:blur + scale —— 这两个每帧都要重新栅格化，
-				// 和 layout 叠在同一条动画里就是"卡"的主要来源，砍掉后明显顺。
-				"@keyframes dsgItemIn{from{height:0;opacity:0;transform:translateY(-4px)}to{height:var(--dsg-h,40px);opacity:1;transform:none}}",
-				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);opacity:1;transform:none}to{height:0;opacity:0;transform:translateY(-4px)}}",
-				// contain:layout 把每个条目的重排圈在它自己内部 —— 多条目同时动画时，
-				// 少了它父容器要跟着重算 N 次，就是「卡」的主要来源之一。
-				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .22s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
-				// 收起单独用更陡的曲线：共享的 ease-out 尾巴太长，最后 10% 的时间只走 2% 的距离，
-				// 看起来就是"最后卡了一下"。收尾要干脆。
-				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .2s cubic-bezier(.4,.6,.35,1) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
+				"[data-dsg-item][data-dsg-anim]{will-change:opacity,transform}",
+				// 全部条目先批量测量，再统一写动画；尺寸与内边距同步，避免零高度被撑住。
+				// 几何属性只走 keyframes，结束后不再触发第二段 transition。
+				"@keyframes dsgItemIn{from{height:var(--dsg-from-h);padding-top:var(--dsg-from-pt);padding-bottom:var(--dsg-from-pb);margin-top:var(--dsg-from-mt);margin-bottom:var(--dsg-from-mb);opacity:var(--dsg-from-opacity);transform:var(--dsg-from-transform)}to{height:var(--dsg-h);padding-top:var(--dsg-pt);padding-bottom:var(--dsg-pb);margin-top:var(--dsg-mt);margin-bottom:var(--dsg-mb);opacity:1;transform:none}}",
+				"@keyframes dsgItemOut{from{height:var(--dsg-from-h);padding-top:var(--dsg-from-pt);padding-bottom:var(--dsg-from-pb);margin-top:var(--dsg-from-mt);margin-bottom:var(--dsg-from-mb);opacity:var(--dsg-from-opacity);transform:var(--dsg-from-transform)}to{height:0;padding-top:0;padding-bottom:0;margin-top:0;margin-bottom:0;opacity:0;transform:translateY(-4px)}}",
+				"[data-dsg-item][data-dsg-anim]{overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
+				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .22s cubic-bezier(.2,.7,.3,1) both}",
+				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .2s cubic-bezier(.4,.6,.35,1) both}",
+				"@media(prefers-reduced-motion:reduce){[data-dsg-item][data-dsg-anim]{animation-duration:.001ms}}",
 				// —— 管理页 ——
 				// 管理页是「我自己的页面」，可以用自己的设计语言（导航区还是得跟宿主灰调）：
 				// 大圆角卡片 + 超大标题 + 浅灰子卡片 + 紫蓝强调色 + 状态徽章。
@@ -2049,90 +2032,65 @@ window.__ModuleLoader__.load({
 			};
 
 			// ---- 显隐 + 过渡 ----
-			// 一次展开/收起要同时动四层：透明度、缩放位移、模糊、以及真实高度。
-			// 高度这层不能交给 CSS 规则算（收起后条目要 display:none，无法过渡），
-			// 只能在动画前临时锁成像素值、动画后再清掉让它回到自适应。
-			const ANIM_EASE = "cubic-bezier(.4,0,.2,1)";
+			const itemAnimations = new Map();
+			const itemVars = ["h", "pt", "pb", "mt", "mb", "from-h", "from-pt", "from-pb", "from-mt", "from-mb", "from-opacity", "from-transform"];
 
-			/** 抹掉动画期间挂上去的所有 inline style（保留外部传入的 display）。 */
+			/** 清理时撤销旧回调，防止连点或停用后被旧动画改回去。 */
 			const resetItemStyles = (btn) => {
-				btn.style.height = "";
-				btn.style.overflow = "";
-				btn.style.boxSizing = "";
-				btn.style.paddingTop = "";
-				btn.style.paddingBottom = "";
-				btn.style.marginTop = "";
-				btn.style.marginBottom = "";
-				btn.style.transitionDelay = "";
-				btn.style.transitionTimingFunction = "";
-				btn.style.animationDelay = "";
-				btn.style.removeProperty("--dsg-h");
-				btn.style.minHeight = "";
+				const job = itemAnimations.get(btn);
+				if (job !== undefined) {
+					clearTimeout(job.timer);
+					btn.removeEventListener("animationend", job.end);
+					itemAnimations.delete(btn);
+				}
+				for (const prop of ["height", "overflow", "boxSizing", "paddingTop", "paddingBottom", "marginTop", "marginBottom", "transitionDelay", "transitionTimingFunction", "animationDelay", "minHeight"]) btn.style[prop] = "";
+				for (const key of itemVars) btn.style.removeProperty(`--dsg-${key}`);
 				delete btn.dataset.dsgAnim;
 			};
 
-			/**
-			 * 入场：keyframes 驱动（height + opacity + translateY 一条动画），
-			 * 不用 transition —— display:none 恢复的那一帧浏览器认为元素"刚出生"，
-			 * 没有前值可插值，transition 直接不跑。
-			 */
-			const animateIn = (list) => {
-				list.forEach((btn, i) => {
-					const delay = Math.min(i * 26, 120);
-					btn.style.display = "";
-					resetItemStyles(btn);
-					const rect = btn.getBoundingClientRect();
-					const natural = Math.max(1, rect.height);
-					btn.style.setProperty("--dsg-h", `${Math.round(natural)}px`);
-					// 展开时**不要**碰 padding。
-					// 收起才需要把它归零（否则 height:0 被顶住塌不干净），但展开若也归零，
-					// 元素会先矮一截再长回去 —— 就是主人看到的「先收一下再展开」。
-					// 起点被 padding 顶在 22px 而不是 0，视觉上像从一条缝展开，反而更顺。
-					btn.style.animationDelay = `${delay}ms`;
-					// 同一个 animation 想重播，得先摘掉再挂回去，中间强制一次回流
-					delete btn.dataset.dsgAnim;
-					void btn.offsetWidth;
-					btn.dataset.dsgAnim = "in";
-					setTimeout(() => {
-						btn.style.animationDelay = "";
-						if (btn.dataset.dsgAnim !== "in") return;
-						// 先落到实际高度再撤属性：直接撤会让 height 从 40px 跳回 auto，
-						// 虽然值相同，但换行场景下会闪一下
-						btn.style.height = `${Math.round(natural)}px`;
-						delete btn.dataset.dsgAnim;
-						requestAnimationFrame(() => resetItemStyles(btn));
-					}, delay + ANIM_MS + 60);
-				});
+			const itemMetrics = (btn) => {
+				const cs = getComputedStyle(btn);
+				return {
+					h: `${btn.getBoundingClientRect().height}px`,
+					pt: cs.paddingTop, pb: cs.paddingBottom,
+					mt: cs.marginTop, mb: cs.marginBottom,
+					opacity: cs.opacity, transform: cs.transform,
+				};
 			};
 
-			/**
-			 * 退场：同样一条 keyframes 带全部属性。
-			 * 之前 opacity 走 transition 立刻起步、height 要等双 rAF 才动，
-			 * 错开 32ms 看着就是「停顿一下才塌」。
-			 */
-			const animateOut = (list) => {
-				list.forEach((btn, i) => {
-					const delay = Math.min(i * 14, 80);
-					const rect = btn.getBoundingClientRect();
-					const h = Math.max(1, rect.height);
-					btn.style.setProperty("--dsg-h", `${Math.round(h)}px`);
-					// 同上：只归零一次，不参与逐帧插值
-					btn.style.paddingTop = "0px";
-					btn.style.paddingBottom = "0px";
-					btn.style.animationDelay = `${delay}ms`;
-					delete btn.dataset.dsgAnim;
-					void btn.offsetWidth;
-					btn.dataset.dsgAnim = "out";
-					setTimeout(() => {
-						btn.style.animationDelay = "";
-						// 期间若被重新展开，dataset 已经被 animateIn 改掉 → 这里不隐藏
-						if (btn.dataset.dsgAnim !== "out") return;
-						// 必须先 display:none 再撤动画，否则会闪回满高那一帧
-						btn.style.display = "none";
-						delete btn.dataset.dsgAnim;
+			const animateItems = (enter, leave) => {
+				const jobs = [...enter.map((btn) => ({ btn, direction: "in" })), ...leave.map((btn) => ({ btn, direction: "out" }))];
+				// 先读完当前画面；交错读写会让 N 个条目强制布局 N 次。
+				for (const job of jobs) {
+					job.from = job.btn.style.display === "none"
+						? { h: "0px", pt: "0px", pb: "0px", mt: "0px", mb: "0px", opacity: "0", transform: "translateY(-4px)" }
+						: itemMetrics(job.btn);
+				}
+				for (const { btn } of jobs) {
+					resetItemStyles(btn);
+					btn.style.display = "";
+				}
+				// 所有条目恢复自然尺寸后再读展开目标，只触发一轮布局。
+				for (const job of jobs) if (job.direction === "in") job.to = itemMetrics(job.btn);
+				for (const job of jobs) {
+					const { btn, direction } = job;
+					for (const [key, value] of Object.entries(job.from)) btn.style.setProperty(`--dsg-from-${key}`, value);
+					if (job.to !== undefined) for (const [key, value] of Object.entries(job.to)) {
+						if (key !== "opacity" && key !== "transform") btn.style.setProperty(`--dsg-${key}`, value);
+					}
+					btn.dataset.dsgAnim = direction;
+					const finish = () => {
+						if (itemAnimations.get(btn) !== job) return;
+						btn.style.display = direction === "out" ? "none" : "";
 						resetItemStyles(btn);
-					}, delay + ANIM_MS + 16);
-				});
+					};
+					job.end = (event) => {
+						if (event.target === btn && event.animationName === (direction === "in" ? "dsgItemIn" : "dsgItemOut")) finish();
+					};
+					job.timer = setTimeout(finish, ANIM_MS + 80);
+					itemAnimations.set(btn, job);
+					btn.addEventListener("animationend", job.end);
+				}
 			};
 
 			const applyVisibility = (animate) => {
@@ -2141,8 +2099,6 @@ window.__ModuleLoader__.load({
 				for (const r of rows) {
 					const btn = refs.get(r.id);
 					if (btn === undefined) continue;
-					// 正在过渡的按钮别插手，否则会把动画打断
-					if (btn.dataset.dsgAnim !== undefined) continue;
 					const g = groupOf(r.id);
 					// 隐藏优先于一切：藏起来的条目不管在不在组里、组展没展开，都不显示。
 					// 顶部固定项只受隐藏影响（它们没有"组展开"这回事）。
@@ -2154,6 +2110,8 @@ window.__ModuleLoader__.load({
 							: (g === undefined ? (state.groups.length === 0 || !state.folded) : g.open !== false);
 					const prev = shownState.get(btn);
 					shownState.set(btn, visible);
+					// 目标未变就保留动画；目标反转则从当前帧接续。
+					if (prev === visible && btn.dataset.dsgAnim !== undefined) continue;
 					if (prev === visible || prev === undefined) {
 						// 新按钮（首次渲染或 React 重建）直接落到最终态，不播动画
 						const want = visible ? "" : "none";
@@ -2166,16 +2124,15 @@ window.__ModuleLoader__.load({
 				if (!animate) {
 					for (const btn of enter) {
 						btn.style.display = "";
-						delete btn.dataset.dsgAnim;
+						resetItemStyles(btn);
 					}
 					for (const btn of leave) {
 						btn.style.display = "none";
-						delete btn.dataset.dsgAnim;
+						resetItemStyles(btn);
 					}
 					return;
 				}
-				if (enter.length > 0) animateIn(enter);
-				if (leave.length > 0) animateOut(leave);
+				animateItems(enter, leave);
 			};
 
 			// ---- 布局 ----
@@ -2402,6 +2359,7 @@ window.__ModuleLoader__.load({
 					looseChip = null;
 					if (searchBox !== null) searchBox.remove();
 					searchBox = null;
+					for (const btn of [...itemAnimations.keys()]) resetItemStyles(btn);
 					refs.clear();
 					pageListeners.clear();
 					// 抹掉留在宿主按钮上的痕迹：插件卸载后导航必须和原生长得一样
@@ -3367,6 +3325,8 @@ window.__ModuleLoader__.load({
 					ghost.removeAttribute("data-shortcut-modal");
 					ghost.setAttribute("data-dsg-ghost", "1");
 					ghost.setAttribute("aria-hidden", "true");
+					ghost.removeAttribute("aria-modal");
+					ghost.inert = true;
 					const st = ghost.style;
 					st.position = "fixed";
 					st.left = `${Math.round(rect.left)}px`;
@@ -3387,7 +3347,9 @@ window.__ModuleLoader__.load({
 						ghostContent.style.animation = "dsgContentOut .16s ease forwards";
 					}
 					const kill = () => ghost.remove();
-					ghost.addEventListener("animationend", kill);
+					ghost.addEventListener("animationend", (event) => {
+						if (event.target === ghost && event.animationName === "dsgPanelOut") kill();
+					});
 					setTimeout(kill, 700); // 双保险：animationend 万一没来（两段合计 370ms）
 				} catch (_ignored) {
 					/* 克隆失败就让它直接消失，不影响关闭本身 */
