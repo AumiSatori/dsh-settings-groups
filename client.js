@@ -205,7 +205,7 @@ window.__ModuleLoader__.load({
 			 * folded 默认 false：装这个插件就是为了把条目拖来拖去，一进来就全收起来
 			 * 等于把可拖的东西藏了。想省地方再自己点那一行收起。
 			 */
-			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, folded: false, groups: [], loose: [], hidden: [], coreExtra: [], coreOrder: [] });
+			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, folded: false, groups: [], loose: [], hidden: [], coreExtra: [], coreOrder: [], topOrder: [] });
 
 			const sanitize = (raw) => {
 				const next = defaults();
@@ -215,6 +215,7 @@ window.__ModuleLoader__.load({
 				if (typeof raw.folded === "boolean") next.folded = raw.folded;
 				if (Array.isArray(raw.coreExtra)) next.coreExtra = raw.coreExtra.filter((x) => typeof x === "string");
 				if (Array.isArray(raw.coreOrder)) next.coreOrder = raw.coreOrder.filter((x) => typeof x === "string");
+				if (Array.isArray(raw.topOrder)) next.topOrder = raw.topOrder.filter((x) => typeof x === "string");
 				if (raw.migratedV1 === true) next.migratedV1 = true;
 				if (Array.isArray(raw.hidden)) next.hidden = raw.hidden.filter((x) => typeof x === "string");
 				if (Array.isArray(raw.loose)) next.loose = raw.loose.filter((x) => typeof x === "string");
@@ -521,6 +522,52 @@ window.__ModuleLoader__.load({
 					out.push(r.id);
 				}
 				return out;
+			};
+
+			/**
+			 * 顶层顺序：核心项和分组**混排**在同一串里。
+			 *
+			 * 以前核心项和分组是两个独立数组，分组只能排在所有核心项之后 ——
+			 * 所以「把分组拖到上面」永远落在核心区底下。现在只有这一份真相：
+			 * `topOrder` 存 `c:<id>` / `g:<gid>`，没记过的按默认顺序补在末尾。
+			 */
+			const resolvedTopOrder = () => {
+				const alive = rowIds();
+				const hidden = new Set(state.hidden);
+				const out = [];
+				const seen = new Set();
+				for (const token of state.topOrder) {
+					if (typeof token !== "string" || token.length < 3) continue;
+					const kind = token[0] === "c" ? "core" : token[0] === "g" ? "group" : "";
+					const id = token.slice(2);
+					if (kind === "core") {
+						if (!alive.has(id) || hidden.has(id) || !isCore(id) || seen.has(token)) continue;
+						seen.add(token);
+						out.push({ kind, id });
+					} else if (kind === "group") {
+						if (!state.groups.some((g) => g.id === id) || seen.has(token)) continue;
+						seen.add(token);
+						out.push({ kind, id });
+					}
+				}
+				for (const id of coreIds()) {
+					const token = `c:${id}`;
+					if (seen.has(token)) continue;
+					seen.add(token);
+					out.push({ kind: "core", id });
+				}
+				for (const g of state.groups) {
+					const token = `g:${g.id}`;
+					if (seen.has(token)) continue;
+					seen.add(token);
+					out.push({ kind: "group", id: g.id });
+				}
+				return out;
+			};
+
+			/** 把顶层顺序写回配置。 */
+			const commitTopOrder = (list) => {
+				state.topOrder = list.map((x) => `${x.kind === "core" ? "c" : "g"}:${x.id}`);
 			};
 
 			/** 从所有分组、未分组、隐藏列表里摘掉某条目（三态互斥，换态先摘干净）。 */
@@ -1143,11 +1190,17 @@ window.__ModuleLoader__.load({
 			const decideDrop = (hit, e) => {
 				if (dragPayload === null) return null;
 				if (dragPayload.kind === "group") {
-					// 组只认组之间的位置（拖到条目上无意义）
-					if (hit.kind !== "chip") return null;
-					if (hit.gid === dragPayload.gid) return null;
-					const rect = hit.el.getBoundingClientRect();
-					return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+					// 分组既能和分组换位，也能插到核心项旁边（顶上那几个）
+					if (hit.kind === "chip") {
+						if (hit.gid === dragPayload.gid) return null;
+						const rect = hit.el.getBoundingClientRect();
+						return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+					}
+					if (hit.kind === "item" && hit.core === true) {
+						const rect = hit.el.getBoundingClientRect();
+						return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+					}
+					return null;
 				}
 				// 条目
 				if (hit.kind === "chip" || hit.kind === "loose") return "into";
@@ -1161,26 +1214,23 @@ window.__ModuleLoader__.load({
 			const applyDrop = (hit, mode, e) => {
 				if (dragPayload === null) return;
 				if (dragPayload.kind === "group") {
-					const from = state.groups.findIndex((g) => g.id === dragPayload.gid);
-					const to = state.groups.findIndex((g) => g.id === hit.gid);
-					if (from < 0 || to < 0 || from === to) return;
-					const [moved] = state.groups.splice(from, 1);
-					let index = state.groups.findIndex((g) => g.id === hit.gid);
-					if (mode === "after") index += 1;
-					state.groups.splice(index, 0, moved);
+					const list = resolvedTopOrder().filter((x) => !(x.kind === "group" && x.id === dragPayload.gid));
+					const at = hit.kind === "chip"
+						? list.findIndex((x) => x.kind === "group" && x.id === hit.gid)
+						: list.findIndex((x) => x.kind === "core" && x.id === hit.id);
+					if (at < 0) return;
+					list.splice(mode === "after" ? at + 1 : at, 0, { kind: "group", id: dragPayload.gid });
+					commitTopOrder(list);
 					return;
 				}
 				const id = dragPayload.id;
 				if (dragPayload.core === true) {
-					// 拖的是顶部固定项：只重排 coreOrder，不碰分组
-					const list = coreIds();
-					const from = list.indexOf(id);
-					if (from < 0) return;
-					list.splice(from, 1);
-					const at = list.indexOf(hit.id);
+					// 拖的是核心项：同样走顶层顺序，这样它也能和分组互换位置
+					const list = resolvedTopOrder().filter((x) => !(x.kind === "core" && x.id === id));
+					const at = list.findIndex((x) => x.kind === "core" && x.id === hit.id);
 					if (at < 0) return;
-					list.splice(mode === "after" ? at + 1 : at, 0, id);
-					state.coreOrder = list;
+					list.splice(mode === "after" ? at + 1 : at, 0, { kind: "core", id });
+					commitTopOrder(list);
 					return;
 				}
 				if (hit.kind === "chip") {
@@ -1422,15 +1472,16 @@ window.__ModuleLoader__.load({
 					}
 				}
 
-				const core = [];
-				for (const id of coreIds()) {
-					const btn = refs.get(id);
-					if (btn !== undefined) core.push(btn);
-				}
-				seq.push(...core);
-				for (const g of state.groups) {
-					const chip = ensureChip(g);
-					seq.push(chip);
+				// 核心项和分组走同一串顺序：分组可以插在核心项之间，不再永远排在下面
+				for (const item of resolvedTopOrder()) {
+					if (item.kind === "core") {
+						const btn = refs.get(item.id);
+						if (btn !== undefined) seq.push(btn);
+						continue;
+					}
+					const g = groupById(item.id);
+					if (g === undefined) continue;
+					seq.push(ensureChip(g));
 					for (const id of entriesOf(g)) {
 						const btn = refs.get(id);
 						if (btn !== undefined) seq.push(btn);
@@ -1641,24 +1692,27 @@ window.__ModuleLoader__.load({
 				save();
 			};
 
+			/** 分组上移/下移：在混排序列里走，一格就是导航上的一行。 */
 			const moveGroup = (gid, delta) => {
-				const idx = state.groups.findIndex((g) => g.id === gid);
+				const list = resolvedTopOrder();
+				const idx = list.findIndex((x) => x.kind === "group" && x.id === gid);
 				const to = idx + delta;
-				if (idx < 0 || to < 0 || to >= state.groups.length) return;
-				const [g] = state.groups.splice(idx, 1);
-				state.groups.splice(to, 0, g);
+				if (idx < 0 || to < 0 || to >= list.length) return;
+				const [moved] = list.splice(idx, 1);
+				list.splice(to, 0, moved);
+				commitTopOrder(list);
 				save();
 			};
 
 			/** 顶部固定项上移/下移（只在自己这一区里排，不进分组）。 */
 			const moveCore = (id, delta) => {
-				const list = coreIds();
-				const idx = list.indexOf(id);
+				const list = resolvedTopOrder();
+				const idx = list.findIndex((x) => x.kind === "core" && x.id === id);
 				const to = idx + delta;
 				if (idx < 0 || to < 0 || to >= list.length) return;
-				list.splice(idx, 1);
-				list.splice(to, 0, id);
-				state.coreOrder = list;
+				const [moved] = list.splice(idx, 1);
+				list.splice(to, 0, moved);
+				commitTopOrder(list);
 				save();
 			};
 

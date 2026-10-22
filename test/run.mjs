@@ -529,6 +529,16 @@ await page.evaluate(() => {
 await page.waitForTimeout(500)
 check('固定项能放回来', (await navVisible()).includes('账号与余额'), (await navVisible()).slice(0, 4).join('/'))
 
+// ---- 9.7b2 分组能插到核心项之间/上面 ----
+await dnd({ srcChip: '开发工具', dstLabel: '账号与余额', part: 'top' })
+await page.waitForTimeout(450)
+const aboveCore = await navOrder()
+check('分组能拖到核心项上面', aboveCore[0] === '[chip:开发工具]', aboveCore.slice(0, 3).join(' / '))
+
+// 再拖回去（放到「通用设置」下方），后面还有断言依赖默认布局
+await dnd({ srcChip: '开发工具', dstLabel: 'Agent 预设', part: 'bottom' })
+await page.waitForTimeout(450)
+
 // ---- 9.7c 核心项在导航里直接拖，且拖完有 FLIP 过渡 ----
 const beforeDragCore = await navVisible()
 await dnd({ srcLabel: '插件', dstLabel: '模型', part: 'top' })
