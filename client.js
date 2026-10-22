@@ -610,10 +610,14 @@ window.__ModuleLoader__.load({
 				// 入场和退场都用 keyframes：四条属性写在同一条动画里，天然同步。
 				// 之前退场用 transition，opacity 立刻起步、height 要等双 rAF（~32ms）才动，
 				// 两段错开看着就是「卡一下」。
-				"@keyframes dsgItemIn{from{height:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}to{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}}",
-				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}to{height:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}}",
-				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box}",
-				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box}",
+				// ⚠️ 收起之所以会「塌不下去、留一块空位、最后一瞬消失」：
+				// box-sizing:border-box 下 height:0 也压不平 —— 上下 padding 会顶住，
+				// 宿主的按钮若还有 min-height，更是直接卡在几十像素。
+				// 所以 padding 也要进 keyframes，min-height 在动画期间强制归零。
+				"@keyframes dsgItemIn{from{height:0;padding-top:0;padding-bottom:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}to{height:var(--dsg-h,40px);padding-top:var(--dsg-pt,0px);padding-bottom:var(--dsg-pb,0px);opacity:1;filter:blur(0);transform:none}}",
+				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);padding-top:var(--dsg-pt,0px);padding-bottom:var(--dsg-pb,0px);opacity:1;filter:blur(0);transform:none}to{height:0;padding-top:0;padding-bottom:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}}",
+				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important}",
+				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important}",
 				// —— 管理页 ——
 				".dsg-page{display:flex;flex-direction:column;gap:14px;box-sizing:border-box;width:100%;max-width:560px;min-width:0;font-size:13px}",
 				".dsg-card{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.18))}",
@@ -1144,6 +1148,9 @@ window.__ModuleLoader__.load({
 				btn.style.transitionTimingFunction = "";
 				btn.style.animationDelay = "";
 				btn.style.removeProperty("--dsg-h");
+				btn.style.removeProperty("--dsg-pt");
+				btn.style.removeProperty("--dsg-pb");
+				btn.style.minHeight = "";
 				delete btn.dataset.dsgAnim;
 			};
 
@@ -1157,8 +1164,15 @@ window.__ModuleLoader__.load({
 					const delay = Math.min(i * 22, 110);
 					btn.style.display = "";
 					resetItemStyles(btn);
-					const natural = Math.max(1, btn.getBoundingClientRect().height);
+					const rect = btn.getBoundingClientRect();
+					const cs = getComputedStyle(btn);
+					// getComputedStyle 是活对象，改 style 前先把 padding 快照下来
+					const pt = cs.paddingTop;
+					const pb = cs.paddingBottom;
+					const natural = Math.max(1, rect.height);
 					btn.style.setProperty("--dsg-h", `${Math.round(natural)}px`);
+					btn.style.setProperty("--dsg-pt", pt);
+					btn.style.setProperty("--dsg-pb", pb);
 					btn.style.animationDelay = `${delay}ms`;
 					// 同一个 animation 想重播，得先摘掉再挂回去，中间强制一次回流
 					delete btn.dataset.dsgAnim;
@@ -1184,8 +1198,14 @@ window.__ModuleLoader__.load({
 			const animateOut = (list) => {
 				list.forEach((btn, i) => {
 					const delay = Math.min(i * 10, 70);
-					const h = Math.max(1, btn.getBoundingClientRect().height);
+					const rect = btn.getBoundingClientRect();
+					const cs = getComputedStyle(btn);
+					const pt = cs.paddingTop;
+					const pb = cs.paddingBottom;
+					const h = Math.max(1, rect.height);
 					btn.style.setProperty("--dsg-h", `${Math.round(h)}px`);
+					btn.style.setProperty("--dsg-pt", pt);
+					btn.style.setProperty("--dsg-pb", pb);
 					btn.style.animationDelay = `${delay}ms`;
 					delete btn.dataset.dsgAnim;
 					void btn.offsetWidth;

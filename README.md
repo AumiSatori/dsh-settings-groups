@@ -84,6 +84,8 @@
 
 现在改成**按需提层**：只有真正按住分隔条 / 标题栏 / 缩放手柄时才加 `will-change`，松手立刻撤掉。平时面板的 `will-change` 是 `auto`，文字回到正常渲染。
 
+> 收起的动画还有个坑：`box-sizing: border-box` 下 `height: 0` **压不平** —— 上下 `padding` 会顶住，宿主按钮若还有 `min-height`，高度会直接卡在几十像素，于是「留一块空位，最后一瞬才消失」。所以 `padding` 也要进 keyframes（用 `--dsg-pt/--dsg-pb` 传原值），动画期间 `min-height` 强制归零。
+
 > 另外：只要你把面板**拖动过**（位移非 0），它就必须留在合成层上（`transform` 本身就意味着提层）。双击标题栏复位到居中，就能回到完全清晰的状态。
 
 ## 和 dsh-settings-nav-organizer 的关系
