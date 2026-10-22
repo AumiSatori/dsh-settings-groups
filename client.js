@@ -959,6 +959,268 @@ window.__ModuleLoader__.load({
 			};
 
 			// ---- chip 构建 ----
+			/** 拖动结束时紧跟着的那次 click 要吞掉，否则会顺带切换展开态。 */
+			let suppressChipClick = false;
+
+			/**
+			 * 手机桌面式拖动：按住 250ms 浮起 → 克隆一份跟着指针 → 经过别处实时让位 → 松手落位。
+			 *
+			 * 为什么不用 HTML5 DnD：它的拖拽预览是浏览器自己画的（半透明截图），
+			 * 没法做成"拿在手里"的样子；而且只有 drop 时才允许改 DOM，
+			 * 想要"经过哪儿哪儿就挪开"根本做不到。
+			 */
+			const bindChipPointerDrag = (el, gid) => {
+				let timer = 0;
+				let startX = 0;
+				let startY = 0;
+				let ghost = null;
+				let grabX = 0;
+				let grabY = 0;
+				let lastKey = "\u0000";
+				let dragging = false;
+
+				const cleanup = () => {
+					if (timer !== 0) {
+						clearTimeout(timer);
+						timer = 0;
+					}
+					if (ghost !== null) {
+						ghost.remove();
+						ghost = null;
+					}
+					el.style.opacity = "";
+					document.body.style.cursor = "";
+					document.removeEventListener("pointermove", onMove, true);
+					document.removeEventListener("pointerup", onUp, true);
+					document.removeEventListener("pointercancel", onUp, true);
+					document.removeEventListener("pointerup", cancelTimer, true);
+					clearDropMarks();
+					if (dragging) {
+						suppressChipClick = true;
+						setTimeout(() => {
+							suppressChipClick = false;
+						}, 0);
+					}
+					dragging = false;
+				};
+
+				function cancelTimer() {
+					if (timer !== 0) {
+						clearTimeout(timer);
+						timer = 0;
+					}
+					document.removeEventListener("pointerup", cancelTimer, true);
+				}
+
+				/** 指针下面是什么：另一个分组，或某个核心项。 */
+				const hitAt = (x, y) => {
+					const raw = document.elementFromPoint(x, y);
+					if (raw === null) return null;
+					const chip = raw.closest?.(".dsg-chip");
+					if (chip !== null && chip !== undefined) {
+						if (chip === el) return null;
+						if (chip.dataset.dsgChip === "loose") return null;
+						const rect = chip.getBoundingClientRect();
+						return { gid: chip.dataset.dsgGid, after: y > rect.top + rect.height / 2 };
+					}
+					const btn = raw.closest?.("button");
+					if (btn !== null && btn !== undefined) {
+						const id = buttonId(btn);
+						if (id !== undefined && isCore(id) && !state.hidden.includes(id)) {
+							const rect = btn.getBoundingClientRect();
+							return { coreId: id, after: y > rect.top + rect.height / 2 };
+						}
+					}
+					return null;
+				};
+
+				const onMove = (e) => {
+					if (!dragging) {
+						// 还没到 250ms 就移动了 → 当点击/滚动，取消长按
+						if (Math.abs(e.clientX - startX) > 6 || Math.abs(e.clientY - startY) > 6) cancelTimer();
+						return;
+					}
+					e.preventDefault();
+					if (ghost !== null) {
+						ghost.style.transform = `translate3d(${Math.round(e.clientX - grabX)}px, ${Math.round(e.clientY - grabY)}px, 0) scale(1.04) rotate(-.4deg)`;
+					}
+					const hit = hitAt(e.clientX, e.clientY);
+					const key = hit === null ? "" : `${hit.gid ?? hit.coreId}:${hit.after}`;
+					if (key === lastKey) return;
+					lastKey = key;
+					if (hit === null) {
+						clearDropMarks();
+						return;
+					}
+					// 实时让位：每次落点变化才真的重排一次（不是每帧）
+					const before = snapshotRects();
+					moveGroupTo(gid, hit);
+					sync();
+					flipRects(before);
+				};
+
+				const onUp = () => cleanup();
+
+				el.addEventListener("pointerdown", (e) => {
+					if (e.button !== 0 || gid === undefined) return;
+					startX = e.clientX;
+					startY = e.clientY;
+					if (timer !== 0) clearTimeout(timer);
+					document.addEventListener("pointerup", cancelTimer, true);
+					timer = setTimeout(() => {
+						timer = 0;
+						dragging = true;
+						const rect = el.getBoundingClientRect();
+						grabX = startX - rect.left;
+						grabY = startY - rect.top;
+						ghost = el.cloneNode(true);
+						ghost.removeAttribute("draggable");
+						ghost.removeAttribute("data-dsg-gid");
+						Object.assign(ghost.style, {
+							position: "fixed",
+							left: "0px",
+							top: "0px",
+							width: `${Math.round(rect.width)}px`,
+							height: `${Math.round(rect.height)}px`,
+							margin: "0",
+							pointerEvents: "none",
+							zIndex: "2147483000",
+							transform: `translate3d(${Math.round(rect.left)}px, ${Math.round(rect.top)}px, 0) scale(1.04) rotate(-.4deg)`,
+							transformOrigin: "center center",
+							boxShadow: "0 12px 32px rgba(0,0,0,.24)",
+							borderRadius: "9px",
+							background: "var(--dsw-alias-bg-layer-1, #fff)",
+							transition: "none",
+						});
+						ghost.dataset.dsgFloating = "1";
+						document.body.appendChild(ghost);
+						el.style.opacity = "0.22";
+						document.body.style.cursor = "grabbing";
+						lastKey = "\u0000";
+						document.addEventListener("pointermove", onMove, true);
+						document.addEventListener("pointerup", onUp, true);
+						document.addEventListener("pointercancel", onUp, true);
+					}, 250);
+				});
+			};
+
+			/**
+			 * 管理页卡片的同款拖拽：长按浮起 → 跟手 → 经过别的卡片实时让位。
+			 * 跟导航那套共用一个思路，只是落点判定换成"卡片的上下半区"。
+			 */
+			const bindCardPointerDrag = (el, gid) => {
+				if (el.dataset.dsgPtrBound === "1") return;
+				el.dataset.dsgPtrBound = "1";
+				let timer = 0;
+				let startX = 0;
+				let startY = 0;
+				let ghost = null;
+				let grabX = 0;
+				let grabY = 0;
+				let lastKey = "\u0000";
+				let dragging = false;
+
+				const cleanup = () => {
+					if (timer !== 0) {
+						clearTimeout(timer);
+						timer = 0;
+					}
+					if (ghost !== null) {
+						ghost.remove();
+						ghost = null;
+					}
+					el.style.opacity = "";
+					document.body.style.cursor = "";
+					document.removeEventListener("pointermove", onMove, true);
+					document.removeEventListener("pointerup", onUp, true);
+					document.removeEventListener("pointercancel", onUp, true);
+					document.removeEventListener("pointerup", cancelTimer, true);
+					dragging = false;
+				};
+
+				function cancelTimer() {
+					if (timer !== 0) {
+						clearTimeout(timer);
+						timer = 0;
+					}
+					document.removeEventListener("pointerup", cancelTimer, true);
+				}
+
+				const hitAt = (x, y) => {
+					const raw = document.elementFromPoint(x, y);
+					if (raw === null) return null;
+					const card = raw.closest?.(".dsg-card");
+					if (card === null || card === undefined || card === el) return null;
+					const nameEl = card.querySelector(".dsg-cardname");
+					if (nameEl === null) return null;
+					const target = resolvedTopOrder()
+						.filter((x2) => x2.kind === "group")
+						.map((x2) => groupById(x2.id))
+						.find((g2) => g2 !== undefined && g2.name === nameEl.textContent);
+					if (target === undefined) return null;
+					const rect = card.getBoundingClientRect();
+					return { gid: target.id, after: y > rect.top + rect.height / 2 };
+				};
+
+				const onMove = (e) => {
+					if (!dragging) {
+						if (Math.abs(e.clientX - startX) > 6 || Math.abs(e.clientY - startY) > 6) cancelTimer();
+						return;
+					}
+					e.preventDefault();
+					if (ghost !== null) {
+						ghost.style.transform = `translate3d(${Math.round(e.clientX - grabX)}px, ${Math.round(e.clientY - grabY)}px, 0) scale(1.012) rotate(-.18deg)`;
+					}
+					const hit = hitAt(e.clientX, e.clientY);
+					const key = hit === null ? "" : `${hit.gid}:${hit.after}`;
+					if (key === lastKey) return;
+					lastKey = key;
+					if (hit === null) return;
+					moveGroupTo(gid, hit);
+					// 让 React 自己重渲染：顺序变了，卡片会重新排
+					notifyPage();
+				};
+
+				const onUp = () => cleanup();
+
+				el.addEventListener("pointerdown", (e) => {
+					if (e.button !== 0) return;
+					if (e.target.closest("button, input, .dsg-picker") !== null) return;
+					startX = e.clientX;
+					startY = e.clientY;
+					if (timer !== 0) clearTimeout(timer);
+					document.addEventListener("pointerup", cancelTimer, true);
+					timer = setTimeout(() => {
+						timer = 0;
+						dragging = true;
+						const rect = el.getBoundingClientRect();
+						grabX = startX - rect.left;
+						grabY = startY - rect.top;
+						ghost = el.cloneNode(true);
+						Object.assign(ghost.style, {
+							position: "fixed",
+							left: "0px",
+							top: "0px",
+							width: `${Math.round(rect.width)}px`,
+							pointerEvents: "none",
+							zIndex: "2147483000",
+							transform: `translate3d(${Math.round(rect.left)}px, ${Math.round(rect.top)}px, 0) scale(1.012) rotate(-.18deg)`,
+							transformOrigin: "center center",
+							boxShadow: "0 4px 10px rgba(0,0,0,.1), 0 24px 48px -16px rgba(0,0,0,.26)",
+							transition: "none",
+						});
+						ghost.dataset.dsgFloating = "1";
+						document.body.appendChild(ghost);
+						el.style.opacity = "0.25";
+						document.body.style.cursor = "grabbing";
+						lastKey = "\u0000";
+						document.addEventListener("pointermove", onMove, true);
+						document.addEventListener("pointerup", onUp, true);
+						document.addEventListener("pointercancel", onUp, true);
+					}, 250);
+				});
+			};
+
 			const makeChip = (kind, gid) => {
 				const el = document.createElement("button");
 				el.type = "button";
@@ -977,7 +1239,13 @@ window.__ModuleLoader__.load({
 				grip.title = t("dragHint");
 				el.append(caret, name, count, grip);
 
-				el.addEventListener("click", () => {
+				el.addEventListener("click", (ev) => {
+					// 刚拖完松手会补一个 click —— 别让它顺带把分组折起来
+					if (suppressChipClick) {
+						ev.preventDefault();
+						ev.stopPropagation();
+						return;
+					}
 					if (kind === "group") {
 						const g = groupById(gid);
 						if (g === undefined) return;
@@ -992,25 +1260,8 @@ window.__ModuleLoader__.load({
 					refreshChipLabels();
 				});
 
-				// 拖整组改顺序
-				if (kind === "group") {
-					el.draggable = true;
-					el.addEventListener("dragstart", (e) => {
-						dragPayload = { kind: "group", gid };
-						el.dataset.dsgDragging = "1";
-						e.dataTransfer.effectAllowed = "move";
-						try {
-							e.dataTransfer.setData(DND_MIME, JSON.stringify(dragPayload));
-						} catch (_ignored) {
-							/* 某些宿主禁止自定义 MIME，靠内存里的 dragPayload 兜底 */
-						}
-					});
-					el.addEventListener("dragend", () => {
-						dragPayload = null;
-						delete el.dataset.dsgDragging;
-						clearDropMarks();
-					});
-				}
+				// 拖整组改顺序：手指式拖拽（长按浮起 + 实时让位），不是 HTML5 DnD
+				if (kind === "group") bindChipPointerDrag(el, gid);
 				return el;
 			};
 
@@ -1723,13 +1974,19 @@ window.__ModuleLoader__.load({
 			};
 
 			/** 顶部固定项上移/下移（只在自己这一区里排，不进分组）。 */
-			/** 把某个分组挪到另一个分组的紧邻位置（拖拽用，一次到位）。 */
-			const moveGroupTo = (gid, targetGid, after) => {
-				if (gid === targetGid) return;
+			/**
+			 * 把某个分组挪到目标旁边（目标可以是另一个分组，也可以是核心项）。
+			 * @param {{gid?: string, coreId?: string, after?: boolean}} target
+			 */
+			const moveGroupTo = (gid, target) => {
+				if (target === null || target === undefined) return;
+				if (target.gid === gid) return;
 				const list = resolvedTopOrder().filter((x) => !(x.kind === "group" && x.id === gid));
-				const at = list.findIndex((x) => x.kind === "group" && x.id === targetGid);
+				const at = target.gid !== undefined
+					? list.findIndex((x) => x.kind === "group" && x.id === target.gid)
+					: list.findIndex((x) => x.kind === "core" && x.id === target.coreId);
 				if (at < 0) return;
-				list.splice(after ? at + 1 : at, 0, { kind: "group", id: gid });
+				list.splice(target.after === true ? at + 1 : at, 0, { kind: "group", id: gid });
 				commitTopOrder(list);
 				save();
 			};
@@ -2061,57 +2318,23 @@ window.__ModuleLoader__.load({
 					return h("div", {
 						key: g.id,
 						className: "dsg-card",
-						// 整张卡片可拖：它和左边那个分组标签是同一个东西，凭什么小的能拖大的不能
-						draggable: true,
-						"data-dragging": dragGid === g.id ? "1" : undefined,
-						"data-over": isOver && dragGid === null ? "1" : undefined,
-						"data-insert": dropTarget !== null && dropTarget.startsWith(`grp:${g.id}:`) ? dropTarget.split(":").at(-1) : undefined,
-						onDragStart: (e) => {
-							dragGidRef.current = g.id;
-							setDragGid(g.id);
-							e.dataTransfer.effectAllowed = "move";
-							try {
-								e.dataTransfer.setData("text/plain", g.id);
-							} catch (_ignored) {
-								/* noop */
-							}
+						// 卡片自己走「长按浮起」那套；这里的 ref 只负责挂上监听
+						ref: (el) => {
+							if (el !== null) bindCardPointerDrag(el, g.id);
 						},
-						onDragEnd: () => {
-							dragGidRef.current = null;
-							setDragGid(null);
-							setDropTarget(null);
-						},
+						"data-over": isOver ? "1" : undefined,
 						onDragOver: (e) => {
-							// 拖分组：按上下半区决定插前还是插后
-							if (dragGidRef.current !== null) {
-								if (dragGidRef.current === g.id) return;
-								e.preventDefault();
-								const rect = e.currentTarget.getBoundingClientRect();
-								const before = e.clientY < rect.top + rect.height / 2;
-								setDropTarget(`grp:${g.id}:${before ? "before" : "after"}`);
-								return;
-							}
+							// 只剩「条目被拖进来」这一种情况了（卡片自己的拖动走 pointer）
 							if (dragIdRef.current === null) return;
 							e.preventDefault();
 							setDropTarget(g.id);
 						},
 						onDragLeave: (e) => {
 							if (e.currentTarget.contains(e.relatedTarget)) return;
-							setDropTarget((cur) => (cur === g.id || (cur !== null && cur.startsWith(`grp:${g.id}:`)) ? null : cur));
+							setDropTarget((cur) => (cur === g.id ? null : cur));
 						},
 						onDrop: (e) => {
 							e.preventDefault();
-							if (dragGidRef.current !== null) {
-								if (dragGidRef.current === g.id) return;
-								const rect = e.currentTarget.getBoundingClientRect();
-								const after = e.clientY > rect.top + rect.height / 2;
-								moveGroupTo(dragGidRef.current, g.id, after);
-								dragGidRef.current = null;
-								setDragGid(null);
-								setDropTarget(null);
-								commit();
-								return;
-							}
 							if (dragIdRef.current !== null) {
 								place(dragIdRef.current, { gid: g.id, anchorGid: g.id });
 								dragIdRef.current = null;

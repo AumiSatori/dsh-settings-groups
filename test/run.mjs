@@ -181,6 +181,34 @@ const dragItemToChip = async (label, chipName) => {
 	await dnd({ srcLabel: label, dstChip: chipName, part: 'middle' })
 	await page.waitForTimeout(260)
 }
+
+// 分组标签用的是「长按浮起」那套 pointer 拖拽，不是 HTML5 DnD —— 测试要照它的协议来
+const pointerDragChip = (fromName, toLabel, part) => page.evaluate(async ({ fromName, toLabel, part }) => {
+	const chips = [...document.querySelectorAll('.dsg-chip')]
+	const byChip = (n) => chips.find((c) => c.children[1].textContent === n)
+	const src = byChip(fromName)
+	const dst = byChip(toLabel) ?? [...document.querySelectorAll('.nav-item')].find((b) => (b.textContent ?? '').trim() === toLabel)
+	if (src === undefined || src === null) return 'no-source'
+	if (dst === undefined || dst === null) return 'no-target'
+	const a = src.getBoundingClientRect()
+	const b = dst.getBoundingClientRect()
+	const sx = a.left + a.width / 2
+	const sy = a.top + a.height / 2
+	const ty = part === 'top' ? b.top + 4 : b.bottom - 4
+	const tx = b.left + Math.min(b.width / 2, 40)
+	const fire = (el, type, x, y) => el.dispatchEvent(new PointerEvent(type, {
+		bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 1,
+	}))
+	fire(src, 'pointerdown', sx, sy)
+	await new Promise((r) => setTimeout(r, 280)) // 过长按阈值
+	for (let i = 1; i <= 4; i += 1) {
+		fire(document, 'pointermove', sx + ((tx - sx) * i) / 4, sy + ((ty - sy) * i) / 4)
+		await new Promise((r) => setTimeout(r, 24))
+	}
+	fire(document, 'pointerup', tx, ty)
+	await new Promise((r) => setTimeout(r, 420))
+	return 'ok'
+}, { fromName, toLabel, part })
 await dragItemToChip('Claude 美化', '界面增强')
 const afterDrop = await page.evaluate(() =>
 	[...document.querySelectorAll('.dsg-chip')].map((c) => `${c.children[1].textContent}=${c.children[2].textContent}`))
@@ -254,8 +282,8 @@ await dragItemToChip('Command Code', '开发工具')
 const beforeOrder = (await navOrder()).filter((x) => x.startsWith('[chip'))
 // 落在目标 chip 的「上半部分」= 插到它前面；落点在下半是「插到后面」，
 // 对当前这个顺序等于没动，测不出来。
-await dnd({ srcChip: '开发工具', dstChip: '界面增强', part: 'top' })
-await page.waitForTimeout(300)
+const movedByPointer = await pointerDragChip('开发工具', '界面增强', 'top')
+check('分组拖拽走 pointer 协议', movedByPointer === 'ok', String(movedByPointer))
 const afterOrder = (await navOrder()).filter((x) => x.startsWith('[chip'))
 check('拖动分组可改顺序', beforeOrder.join('|') !== afterOrder.join('|'), `${beforeOrder.join('|')} → ${afterOrder.join('|')}`)
 
@@ -530,14 +558,12 @@ await page.waitForTimeout(500)
 check('固定项能放回来', (await navVisible()).includes('账号与余额'), (await navVisible()).slice(0, 4).join('/'))
 
 // ---- 9.7b2 分组能插到核心项之间/上面 ----
-await dnd({ srcChip: '开发工具', dstLabel: '账号与余额', part: 'top' })
-await page.waitForTimeout(450)
+await pointerDragChip('开发工具', '账号与余额', 'top')
 const aboveCore = await navOrder()
 check('分组能拖到核心项上面', aboveCore[0] === '[chip:开发工具]', aboveCore.slice(0, 3).join(' / '))
 
-// 再拖回去（放到「通用设置」下方），后面还有断言依赖默认布局
-await dnd({ srcChip: '开发工具', dstLabel: 'Agent 预设', part: 'bottom' })
-await page.waitForTimeout(450)
+// 再拖回去（放到「Agent 预设」下方），后面还有断言依赖默认布局
+await pointerDragChip('开发工具', 'Agent 预设', 'bottom')
 
 // ---- 9.7c 核心项在导航里直接拖，且拖完有 FLIP 过渡 ----
 const beforeDragCore = await navVisible()
@@ -579,25 +605,34 @@ await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerd
 await page.waitForTimeout(120)
 
 // ---- 9.7e 管理页的整张卡片也能拖 ----
-const cardDrag = await page.evaluate(() => {
+// 卡片也是「长按浮起 + pointer」，不是 HTML5 DnD
+const cardDrag = await page.evaluate(async () => {
 	const cards = [...document.querySelectorAll('.dsg-page .dsg-card')]
 		.filter((c) => c.querySelector('.dsg-cardname') !== null)
 	const byName = (n) => cards.find((c) => c.querySelector('.dsg-cardname')?.textContent === n)
 	const a = byName('界面增强')
 	const b = byName('开发工具')
 	if (a === undefined || b === undefined) return 'missing'
-	const r = b.getBoundingClientRect()
-	// 拖到 b 的上半部分 = 插到它前面
-	const y = r.top + 4
-	const dt = new DataTransfer()
-	const fire = (el, type) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 40, clientY: y }))
-	fire(a, 'dragstart')
-	fire(b, 'dragover')
-	fire(b, 'drop')
-	fire(a, 'dragend')
+	const ar = a.getBoundingClientRect()
+	const br = b.getBoundingClientRect()
+	const sx = ar.left + 40
+	const sy = ar.top + 30
+	const tx = br.left + 40
+	const ty = br.top + 6
+	const fire = (el, type, x, y) => el.dispatchEvent(new PointerEvent(type, {
+		bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 2,
+	}))
+	fire(a, 'pointerdown', sx, sy)
+	await new Promise((r) => setTimeout(r, 280))
+	for (let i = 1; i <= 4; i += 1) {
+		fire(document, 'pointermove', sx + ((tx - sx) * i) / 4, sy + ((ty - sy) * i) / 4)
+		await new Promise((r) => setTimeout(r, 24))
+	}
+	fire(document, 'pointerup', tx, ty)
+	await new Promise((r) => setTimeout(r, 420))
 	return 'ok'
 })
-await page.waitForTimeout(450)
+await page.waitForTimeout(200)
 const afterCardDrag = (await navOrder()).filter((x) => x.startsWith('[chip'))
 check('管理页卡片能拖动排序', cardDrag === 'ok' && afterCardDrag.indexOf('[chip:界面增强]') < afterCardDrag.indexOf('[chip:开发工具]'), `${cardDrag} ${afterCardDrag.join(' / ')}`)
 
