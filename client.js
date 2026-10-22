@@ -563,10 +563,17 @@ window.__ModuleLoader__.load({
 			styleTag.dataset.dsgStyle = "1";
 			const CSS = [
 				// —— 搜索框：跟 chip 一样高，不占地方 ——
-				".dsg-search{display:flex;flex-direction:column;gap:2px;box-sizing:border-box;width:100%;margin:2px 0 5px}",
-				".dsg-search-row{display:flex;align-items:center;gap:4px;box-sizing:border-box;height:26px;padding:0 7px;border-radius:7px;background:rgba(127,127,127,.09)}",
-				".dsg-search-empty{padding:0 7px;font-size:11.5px;line-height:18px;color:var(--dsw-alias-label-secondary,#999)}",
-				".dsg-search-input{flex:1;min-width:0;border:none;background:transparent;color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:12px;line-height:26px;outline:none;padding:0}",
+				// 搜索框：细边框 + 放大镜，跟宿主导航项（前面都带图标）同一路子。
+				// 早先是灰底方块，贴着顶边、还比下面的图标靠左，看着像误入的外来控件。
+				".dsg-search{display:flex;flex-direction:column;gap:2px;box-sizing:border-box;width:100%;margin:8px 0 8px}",
+				".dsg-search-row{display:flex;align-items:center;gap:7px;box-sizing:border-box;height:30px;padding:0 11px;border-radius:8px;border:1px solid rgba(127,127,127,.2);background:transparent;transition:border-color .16s ease,background .16s ease}",
+				".dsg-search-row:hover{border-color:rgba(127,127,127,.34)}",
+				".dsg-search-row:focus-within{border-color:var(--dsw-alias-state-info-primary,#4a7cf5);background:color-mix(in srgb, var(--dsw-alias-state-info-primary,#4a7cf5) 5%, transparent)}",
+				".dsg-search-icon{flex:none;opacity:.55;transition:opacity .16s ease,color .16s ease}",
+				".dsg-search-row:hover .dsg-search-icon{opacity:.75}",
+				".dsg-search-row:focus-within .dsg-search-icon{opacity:1;color:var(--dsw-alias-state-info-primary,#4a7cf5)}",
+				".dsg-search-empty{padding:2px 2px 0;font-size:11.5px;line-height:18px;color:var(--dsw-alias-label-secondary,#999)}",
+				".dsg-search-input{flex:1;min-width:0;border:none;background:transparent;color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:12.5px;line-height:28px;outline:none;padding:0}",
 				".dsg-search-input::placeholder{color:var(--dsw-alias-label-tertiary,#aaa)}",
 				".dsg-search-clear{flex:none;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#999);font-family:inherit;font-size:11px;line-height:1;padding:0 2px;cursor:pointer;opacity:0;transition:opacity .15s ease}",
 				".dsg-search[data-filled=\"1\"] .dsg-search-clear{opacity:.7}",
@@ -724,6 +731,14 @@ window.__ModuleLoader__.load({
 				wrap.dataset.dsgSearchBox = "1";
 				const row = document.createElement("div");
 				row.className = "dsg-search-row";
+				// 放大镜：跟宿主导航项那些图标一样走细线条，别用 emoji
+				const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+				icon.setAttribute("class", "dsg-search-icon");
+				icon.setAttribute("viewBox", "0 0 16 16");
+				icon.setAttribute("width", "13");
+				icon.setAttribute("height", "13");
+				icon.setAttribute("aria-hidden", "true");
+				icon.innerHTML = '<circle cx="6.9" cy="6.9" r="4.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.2 10.2 13.7 13.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>';
 				const input = document.createElement("input");
 				input.type = "text";
 				input.className = "dsg-search-input";
@@ -759,7 +774,7 @@ window.__ModuleLoader__.load({
 				empty.className = "dsg-search-empty";
 				empty.textContent = t("searchEmpty");
 				empty.style.display = "none";
-				row.append(input, clear);
+				row.append(icon, input, clear);
 				wrap.append(row, empty);
 				return wrap;
 			};

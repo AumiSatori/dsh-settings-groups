@@ -484,6 +484,24 @@ const typeSearch = async (q) => {
 }
 check('搜索框已注入', (await page.locator('.dsg-search-input').count()) === 1)
 
+const searchBox = await page.evaluate(() => {
+	const row = document.querySelector('.dsg-search-row')
+	const icon = document.querySelector('.dsg-search-icon')
+	const box = document.querySelector('.dsg-search')
+	const rect = row?.getBoundingClientRect()
+	const boxRect = box?.getBoundingClientRect()
+	return {
+		hasIcon: icon !== null,
+		iconShapes: icon === null ? 0 : icon.querySelectorAll('circle, path').length,
+		rowH: rect === undefined ? 0 : Math.round(rect.height),
+		marginTop: boxRect === undefined ? null : Math.round(boxRect.top),
+		borderWidth: row === null ? null : getComputedStyle(row).borderTopWidth,
+	}
+})
+check('搜索框带放大镜图标', searchBox.hasIcon && searchBox.iconShapes === 2, JSON.stringify(searchBox))
+check('搜索框有细边框', searchBox.borderWidth === '1px', searchBox.borderWidth)
+check('搜索框高度 30px', searchBox.rowH === 30, `${searchBox.rowH}px`)
+
 const hitOne = await typeSearch('语音')
 check('搜索只剩命中项', hitOne.length === 1 && hitOne[0] === '语音朗读', hitOne.join(' / '))
 
