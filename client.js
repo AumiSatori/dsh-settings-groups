@@ -674,18 +674,20 @@ window.__ModuleLoader__.load({
 				`[data-dsg-search=\"1\"] > button:not(.dsg-chip):not([data-dsg-hit=\"1\"]){display:none !important}`,
 				`[data-dsg-search=\"1\"] > .dsg-chip:not([data-dsg-hit=\"1\"]){display:none !important}`,
 				// —— 分组标签（chip）：比官方 item（40px）明显小一圈 ——
-				".dsg-chip{display:flex;align-items:center;gap:6px;box-sizing:border-box;width:100%;height:26px;margin:4px 0 1px;padding:0 8px;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary,#8a8a8a);font-family:inherit;font-size:12px;line-height:26px;text-align:left;cursor:pointer;user-select:none;transition:background .15s ease,color .15s ease,transform .12s ease}",
+				// 层级要像 H1 压正文：分组标签比它下面的设置项更大、更粗、更深。
+				// 之前 12px + 灰字，比宿主条目（14px + 图标）还轻，看着层级是反的。
+				".dsg-chip{display:flex;align-items:center;gap:7px;box-sizing:border-box;width:100%;height:32px;margin:6px 0 2px;padding:0 9px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary,#2b2b2b);font-family:inherit;font-size:15px;line-height:32px;text-align:left;cursor:pointer;user-select:none;transition:background .15s ease,color .15s ease,transform .12s ease}",
 				".dsg-chip:hover{background:var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.12));color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-chip:active{transform:scale(.97)}",
 				".dsg-chip[aria-current=\"true\"]{color:var(--dsw-alias-label-primary,#333)}",
 				// 小三角：细线 chevron（`>` 形状），展开时转成 `v`。
 				// 用两条边框拼 L 形再转 -45°，比实心三角轻，跟宿主自己的展开箭头同一种观感。
 				".dsg-caret{flex:none;display:inline-flex;align-items:center;justify-content:center;width:11px;height:11px;opacity:.7;transform-origin:50% 50%;transition:transform .34s cubic-bezier(.34,1.7,.5,1),opacity .22s ease}",
-				".dsg-caret::before{content:\"\";display:block;width:4.5px;height:4.5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;border-radius:.5px;transform:rotate(-45deg);margin:0 0 0 -1px}",
+				".dsg-caret::before{content:\"\";display:block;width:5px;height:5px;border-right:1.7px solid currentColor;border-bottom:1.7px solid currentColor;border-radius:.5px;transform:rotate(-45deg);margin:0 0 0 -1px}",
 				".dsg-chip:hover .dsg-caret{opacity:.95}",
 				".dsg-chip[aria-expanded=\"true\"] .dsg-caret{transform:rotate(90deg) scale(1.15);opacity:1}",
 				".dsg-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;letter-spacing:.01em}",
-				".dsg-count{flex:none;height:15px;line-height:15px;padding:0 5px;border-radius:999px;background:rgba(127,127,127,.14);color:inherit;font-size:10px;opacity:.85}",
+				".dsg-count{flex:none;height:18px;line-height:18px;min-width:18px;text-align:center;padding:0 6px;border-radius:999px;background:rgba(127,127,127,.12);color:var(--dsw-alias-label-secondary,#8a8a8a);font-size:11px;font-weight:500;opacity:.9}",
 				".dsg-grip{flex:none;font-size:10px;opacity:0;cursor:grab;transition:opacity .15s ease}",
 				".dsg-chip:hover .dsg-grip{opacity:.55}",
 				// —— 拖拽反馈 ——
