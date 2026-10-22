@@ -313,6 +313,8 @@ const expandMid = await page.evaluate(() => new Promise((resolve) => {
 	setTimeout(tick, 40)
 }))
 check('展开过程中高度在增长', expandMid.samples.some((h) => h > 0 && h < 38), JSON.stringify(expandMid))
+// 展开只能一路长，不能先缩一下再长 —— 那说明动画中途被重置或被 padding 改动打断了
+check('展开过程不回缩', expandMid.samples.every((h, i, arr) => i === 0 || h >= arr[i - 1]), JSON.stringify(expandMid.samples))
 await page.waitForTimeout(600)
 const backH = await page.evaluate(() => {
 	const item = [...document.querySelectorAll('.nav-item')].find((b) => b.textContent.trim() === '语音朗读')

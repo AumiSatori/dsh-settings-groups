@@ -624,10 +624,12 @@ window.__ModuleLoader__.load({
 				// ⚠️ padding **不要**放进 keyframes。padding 每帧都会重算布局，和 height 叠加
 				// 之后整条动画明显发涩（实测主人反馈"收回下拉都卡"）。改成动画前一次性归零，
 				// 只让 height 走动画 —— 塌得干净，也不拖帧。
-				"@keyframes dsgItemIn{from{height:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}to{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}}",
-				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}to{height:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}}",
-				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important}",
-				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important}",
+				"@keyframes dsgItemIn{from{height:0;opacity:0;filter:blur(3px);transform:scale(.86) translateY(-6px)}to{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}}",
+				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}to{height:0;opacity:0;filter:blur(3px);transform:scale(.86) translateY(-6px)}}",
+				// contain:layout 把每个条目的重排圈在它自己内部 —— 多条目同时动画时，
+				// 少了它父容器要跟着重算 N 次，就是「卡」的主要来源之一。
+				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
+				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
 				// —— 管理页 ——
 				".dsg-page{display:flex;flex-direction:column;gap:14px;box-sizing:border-box;width:100%;max-width:560px;min-width:0;font-size:13px}",
 				".dsg-card{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.18))}",
@@ -1183,9 +1185,10 @@ window.__ModuleLoader__.load({
 					const rect = btn.getBoundingClientRect();
 					const natural = Math.max(1, rect.height);
 					btn.style.setProperty("--dsg-h", `${Math.round(natural)}px`);
-					// padding 一次性归零（不进动画，见 CSS 注释），否则 height:0 压不平
-					btn.style.paddingTop = "0px";
-					btn.style.paddingBottom = "0px";
+					// 展开时**不要**碰 padding。
+					// 收起才需要把它归零（否则 height:0 被顶住塌不干净），但展开若也归零，
+					// 元素会先矮一截再长回去 —— 就是主人看到的「先收一下再展开」。
+					// 起点被 padding 顶在 22px 而不是 0，视觉上像从一条缝展开，反而更顺。
 					btn.style.animationDelay = `${delay}ms`;
 					// 同一个 animation 想重播，得先摘掉再挂回去，中间强制一次回流
 					delete btn.dataset.dsgAnim;
