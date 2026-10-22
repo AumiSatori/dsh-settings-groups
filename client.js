@@ -82,6 +82,7 @@ window.__ModuleLoader__.load({
 				created: "已新建分组",
 				emptyAll: "当前没有可管理的插件设置入口（已安装的插件可能都没有设置页）。",
 				rename: "重命名",
+				renamed: "分组名称已更新",
 				remove: "移出",
 				removeGroup: "删除分组",
 				removeGroupHint: "删除分组后，组内条目回到「未分组」，条目本身不受影响。",
@@ -153,6 +154,7 @@ window.__ModuleLoader__.load({
 				created: "Group created",
 				emptyAll: "No plugin settings entries to organize (installed plugins may not expose a settings page).",
 				rename: "Rename",
+				renamed: "Group name updated",
 				remove: "Remove",
 				removeGroup: "Delete group",
 				removeGroupHint: "Deleting a group returns its entries to “Ungrouped”; entries themselves are untouched.",
@@ -429,6 +431,135 @@ window.__ModuleLoader__.load({
 				pushToHost();
 			};
 
+			// 短动效统一跟随系统偏好；停用或关闭页面时撤掉动画和只用于退场的画面。
+			const uiMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+			const uiMotions = new Set(), uiLayers = new Set();
+			const uiAnimate = (el, frames, options) => {
+				if (uiMedia.matches || !el?.isConnected) return null;
+				try {
+					const motion = el.animate(frames, { duration: 200, easing: "cubic-bezier(.2,.7,.3,1)", ...options });
+					uiMotions.add(motion);
+					motion.finished.then(() => uiMotions.delete(motion), () => uiMotions.delete(motion));
+					return motion;
+				} catch (_ignored) { return null; }
+			};
+			const uiArrival = (el) => uiAnimate(el, [
+				{ boxShadow: "inset 0 0 0 100px rgba(127,127,127,.15)" },
+				{ boxShadow: "inset 0 0 0 100px rgba(127,127,127,0)" },
+			], { id: "dsg-arrival", duration: 420 });
+			ctx.effect(() => {
+				const prune = () => { for (const layer of [...uiLayers]) if (!layer.owner.isConnected) layer.kill(); };
+				const watch = new MutationObserver(prune);
+				watch.observe(document.body, { childList: true, subtree: true });
+				const reduce = () => {
+					if (!uiMedia.matches) return;
+					for (const motion of uiMotions) { try { motion.finish(); } catch (_ignored) { motion.cancel(); } }
+					for (const layer of [...uiLayers]) layer.kill();
+				};
+				uiMedia.addEventListener("change", reduce);
+				return () => {
+					watch.disconnect(); uiMedia.removeEventListener("change", reduce);
+					for (const motion of uiMotions) motion.cancel();
+					uiMotions.clear();
+					for (const layer of [...uiLayers]) layer.kill();
+				};
+			}, "settings-groups: interaction motion cleanup");
+
+			/** 退出时继续留在原位置淡出；退出期间从焦点顺序和鼠标命中中移除。 */
+			function MotionBox({ show, className, children, ...attrs }) {
+				const [present, setPresent] = React.useState(show);
+				const node = React.useRef(null), running = React.useRef(null), seen = React.useRef(false);
+				React.useLayoutEffect(() => {
+					if (show && !present) { setPresent(true); return; }
+					const el = node.current;
+					if (!el) { running.current?.cancel(); running.current = null; seen.current = false; return; }
+					el.inert = !show;
+					const cs = getComputedStyle(el);
+					const from = running.current || seen.current ? { opacity: cs.opacity, transform: cs.transform } : { opacity: 0, transform: "translateY(-4px) scale(.985)" };
+					running.current?.cancel();
+					seen.current = true;
+					const motion = uiAnimate(el, [from, { opacity: show ? 1 : 0, transform: show ? "none" : "translateY(-4px) scale(.985)" }], { id: "dsg-presence", duration: show ? 180 : 140, fill: "both" });
+					running.current = motion;
+					let live = true;
+					const finish = () => {
+						if (!live) return;
+						if (!show) setPresent(false);
+						else { motion?.cancel(); running.current = null; }
+					};
+					if (motion) motion.finished.then(finish, () => {}); else finish();
+					return () => { live = false; };
+				}, [show, present]);
+				React.useEffect(() => () => running.current?.cancel(), []);
+				return present ? h("div", { ...attrs, className, ref: node, "data-dsg-presence": show ? "in" : "out", "aria-hidden": show ? undefined : "true" }, children) : null;
+			}
+
+			const sceneKey = (el) => el.dataset.dsgEntry || el.dataset.dsgPin || el.dataset.dsgHidden
+				? `entry:${el.dataset.dsgEntry ?? el.dataset.dsgPin ?? el.dataset.dsgHidden}`
+				: el.dataset.dsgGid ? `group:${el.dataset.dsgGid}` : `bucket:${el.dataset.dsgBucket}`;
+			const captureScene = (root, selector, keyOf = (el) => el) => {
+				const box = root.getBoundingClientRect();
+				let left = Math.max(0, box.left), top = Math.max(0, box.top), right = Math.min(innerWidth, box.right), bottom = Math.min(innerHeight, box.bottom);
+				for (let parent = root.parentElement; parent; parent = parent.parentElement) {
+					const style = getComputedStyle(parent), r = parent.getBoundingClientRect();
+					if (/auto|scroll|hidden|clip/.test(style.overflowX)) { left = Math.max(left, r.left); right = Math.min(right, r.right); }
+					if (/auto|scroll|hidden|clip/.test(style.overflowY)) { top = Math.max(top, r.top); bottom = Math.min(bottom, r.bottom); }
+				}
+				const scene = { root, rect: { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }, items: new Map() };
+				for (const el of root.querySelectorAll(selector)) {
+					const rect = el.getBoundingClientRect();
+					if (rect.height < 1 || rect.width < 1 || el.dataset.dsgPageDragging || el.dataset.dsgDragging) continue;
+					const card = el.classList.contains("dsg-row") ? el.closest(".dsg-card") : null;
+					scene.items.set(keyOf(el), { el, rect, parent: card ? keyOf(card) : null, opacity: getComputedStyle(el).opacity });
+				}
+				return scene;
+			};
+			const playScene = (before, after, { reorder = true, highlight = false } = {}) => {
+				if (uiMedia.matches || !after.root.isConnected) return;
+				for (const layer of [...uiLayers]) if (layer.owner === after.root) layer.kill();
+				const gone = [];
+				for (const [key, item] of before.items) {
+					if (after.items.get(key)?.el === item.el || item.parent && !after.items.has(item.parent)) continue;
+					if (Number(item.opacity) > .05) gone.push(item);
+				}
+				if (gone.length) {
+					const layer = document.createElement("div");
+					layer.dataset.dsgMotionLayer = "1"; layer.setAttribute("aria-hidden", "true"); layer.inert = true;
+					const bounds = before.rect;
+					Object.assign(layer.style, { position: "fixed", left: `${bounds.left}px`, top: `${bounds.top}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, overflow: "hidden", pointerEvents: "none", zIndex: "2147482000" });
+					const clones = [];
+					for (const item of gone) {
+						const clone = item.el.cloneNode(true), r = item.rect;
+						for (const el of [clone, ...clone.querySelectorAll("*")]) {
+							el.removeAttribute("id");
+							for (const attr of [...el.attributes]) if (attr.name.startsWith("data-dsg-")) el.removeAttribute(attr.name);
+						}
+						Object.assign(clone.style, { position: "absolute", left: `${r.left - bounds.left}px`, top: `${r.top - bounds.top}px`, width: `${r.width}px`, height: `${r.height}px`, minHeight: "0", margin: "0", boxSizing: "border-box", transform: "none", opacity: item.opacity, pointerEvents: "none" });
+						if (item.el.dataset.dsgNest === "1") clone.style.setProperty("padding-left", "30px", "important");
+						clone.style.setProperty("animation", "none", "important"); clone.style.setProperty("transition", "none", "important");
+						layer.appendChild(clone); clones.push(clone);
+					}
+					document.body.appendChild(layer);
+					const record = { owner: after.root, kill: null };
+					let timer;
+					const motions = clones.map((el) => uiAnimate(el, [{ opacity: el.style.opacity, transform: "none" }, { opacity: 0, transform: "translateY(-3px) scale(.985)" }], { id: "dsg-scene-exit", duration: 150, fill: "both" }));
+					record.kill = () => { clearTimeout(timer); for (const motion of motions) motion?.cancel(); layer.remove(); uiLayers.delete(record); };
+					uiLayers.add(record);
+					Promise.all(motions.map((a) => a?.finished.catch(() => {}))).then(record.kill);
+					timer = setTimeout(record.kill, 320);
+				}
+				for (const [key, item] of after.items) {
+					const old = before.items.get(key);
+					if (old?.el !== item.el) {
+						if (item.parent && !before.items.has(item.parent)) continue;
+						uiAnimate(item.el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { id: "dsg-scene-enter", duration: 220 });
+						if (highlight && item.el.classList.contains("dsg-row")) uiArrival(item.el);
+					} else if (reorder) {
+						const dx = old.rect.left - item.rect.left, dy = old.rect.top - item.rect.top;
+						if (Math.abs(dx) > .5 || Math.abs(dy) > .5) uiAnimate(item.el, [{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], { id: "dsg-search-reorder", duration: 200 });
+					}
+				}
+			};
+
 			/**
 			 * 启动时和磁盘对一次账。磁盘更新（比如清过缓存、换了 origin）就用磁盘的，
 			 * 否则把本地这份推上去当权威。
@@ -682,6 +813,7 @@ window.__ModuleLoader__.load({
 				// 所以收起的分组里命中的条目也会露出来，收完不用再手动展开。
 				`[data-dsg-search=\"1\"] > button:not(.dsg-chip):not([data-dsg-hit=\"1\"]){display:none !important}`,
 				`[data-dsg-search=\"1\"] > .dsg-chip:not([data-dsg-hit=\"1\"]){display:none !important}`,
+				`[data-dsg-search=\"1\"] > button[data-dsg-hit=\"1\"]{display:flex !important}`,
 				// —— 分组标签（chip）：比官方 item（40px）明显小一圈 ——
 				// 层级要像 H1 压正文：分组标签比它下面的设置项更大、更粗、更深。
 				// 之前 12px + 灰字，比宿主条目（14px + 图标）还轻，看着层级是反的。
@@ -748,7 +880,12 @@ window.__ModuleLoader__.load({
 				".dsg-section > .dsg-card:last-child{margin-bottom:0}",
 				".dsg-cardhead{position:relative;display:flex;align-items:center;gap:8px;min-width:0;padding-right:8px}",
 				// 删除确认气泡：挂在卡片头下方，就地询问，不弹系统 confirm
-				".dsg-confirm{position:absolute;right:0;top:calc(100% + 10px);z-index:6;width:238px;padding:13px 15px;border-radius:12px;border:1px solid rgba(127,127,127,.16);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 14px 36px -10px rgba(0,0,0,.24);animation:dsgMenuIn .14s cubic-bezier(.2,.7,.3,1)}",
+				".dsg-confirm{position:absolute;right:0;top:calc(100% + 10px);z-index:6;width:238px;max-width:calc(100vw - 32px);padding:13px 15px;border-radius:12px;border:1px solid rgba(127,127,127,.16);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 14px 36px -10px rgba(0,0,0,.24)}",
+				"[data-dsg-presence=\"out\"]{pointer-events:none !important}",
+				".dsg-title-stage{display:grid;flex:1;min-width:0}",
+				".dsg-title-view{display:flex;position:relative;align-items:center;gap:8px;min-width:0;grid-area:1/1}",
+				".dsg-feedback{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30;max-width:calc(100% - 32px);pointer-events:none}",
+				".dsg-toast{padding:9px 15px;border:1px solid rgba(127,127,127,.2);border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#333);box-shadow:0 6px 20px rgba(0,0,0,.12);font-size:13px;line-height:20px;overflow-wrap:anywhere}",
 				".dsg-confirm-text{margin:0 0 11px;font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-confirm-actions{display:flex;gap:8px;justify-content:flex-end}",
 				".dsg-confirm-danger{background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff}",
@@ -800,7 +937,7 @@ window.__ModuleLoader__.load({
 				".dsg-picker-btn[aria-expanded=\"true\"]{border-color:rgba(127,127,127,.52);color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-picker-caret{width:4px;height:4px;border-right:1.4px solid currentColor;border-bottom:1.4px solid currentColor;transform:rotate(45deg) translateY(-1px);opacity:.7;transition:transform .16s ease}",
 				".dsg-picker-btn[aria-expanded=\"true\"] .dsg-picker-caret{transform:rotate(-135deg) translateY(-1px)}",
-				".dsg-picker-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:12;display:flex;flex-direction:column;gap:1px;min-width:112px;max-height:240px;overflow-y:auto;padding:3px;border-radius:8px;border:1px solid rgba(127,127,127,.18);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 8px 24px rgba(0,0,0,.14);animation:dsgMenuIn .14s cubic-bezier(.2,.7,.3,1)}",
+				".dsg-picker-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:12;display:flex;flex-direction:column;gap:1px;min-width:112px;max-height:240px;overflow-y:auto;padding:3px;border-radius:8px;border:1px solid rgba(127,127,127,.18);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 8px 24px rgba(0,0,0,.14)}",
 				"@keyframes dsgMenuIn{from{opacity:0;transform:translateY(-5px) scale(.97)}to{opacity:1;transform:none}}",
 				".dsg-picker-item{border:none;background:transparent;text-align:left;padding:6px 10px;border-radius:5px;font-family:inherit;font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary,#333);cursor:pointer;white-space:nowrap}",
 				".dsg-picker-item:hover{background:rgba(127,127,127,.11)}",
@@ -879,6 +1016,7 @@ window.__ModuleLoader__.load({
 			// ---- 搜索 ----
 			let searchBox = null;
 			let searchQuery = "";
+			const searchQueries = new WeakMap();
 
 			const makeSearchBox = () => {
 				const wrap = document.createElement("div");
@@ -947,12 +1085,17 @@ window.__ModuleLoader__.load({
 			const applySearch = () => {
 				const nav = findNavList();
 				if (nav === null) return;
-				for (const el of nav.querySelectorAll("[data-dsg-hit]")) delete el.dataset.dsgHit;
 				const q = searchQuery.trim().toLowerCase();
+				const before = searchQueries.has(nav) && searchQueries.get(nav) !== q ? captureScene(nav, ":scope > button") : null;
+				searchQueries.set(nav, q);
+				if (before) for (const motion of uiMotions) if (nav.contains(motion.effect?.target) && ["dsg-search-reorder", "dsg-scene-enter"].includes(motion.id)) motion.cancel();
+				const finish = () => { if (before) playScene(before, captureScene(nav, ":scope > button")); };
+				for (const el of nav.querySelectorAll("[data-dsg-hit]")) delete el.dataset.dsgHit;
 				const emptyHint = searchBox === null ? null : searchBox.querySelector(".dsg-search-empty");
 				if (q === "") {
 					delete nav.dataset.dsgSearch;
 					if (emptyHint !== null) emptyHint.style.display = "none";
+					finish();
 					return;
 				}
 				nav.dataset.dsgSearch = "1";
@@ -972,6 +1115,7 @@ window.__ModuleLoader__.load({
 				if (emptyHint !== null) {
 					emptyHint.style.display = nav.querySelector("[data-dsg-hit]") === null ? "" : "none";
 				}
+				finish();
 			};
 
 			// ---- chip 构建 ----
@@ -1403,6 +1547,7 @@ window.__ModuleLoader__.load({
 						if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
 						ghost?.remove();
 						for (const row of document.querySelectorAll("[data-dsg-page-dragging]")) delete row.dataset.dsgPageDragging;
+						if (current.active) uiArrival([...document.querySelectorAll(".dsg-page [data-dsg-entry],.dsg-page [data-dsg-pin],.dsg-page [data-dsg-hidden]")].find((row) => (row.dataset.dsgEntry ?? row.dataset.dsgPin ?? row.dataset.dsgHidden) === id));
 						document.body.style.cursor = "";
 						document.removeEventListener("pointermove", move, true);
 						document.removeEventListener("pointerup", up, true);
@@ -2492,6 +2637,55 @@ window.__ModuleLoader__.load({
 				flipPage(before);
 			};
 
+			/**
+			 * 自定义下拉：原生 <select> 在浅色主题里是「白底 + 蓝条 + 黑边框」，
+			 * 跟整套灰调格格不入，而且没法跟主题变量走。这里自己画一个。
+			 */
+			function GroupPicker({ groups: list, label, onPick }) {
+				const [open, setOpen] = React.useState(false);
+				const boxRef = React.useRef(null);
+				React.useEffect(() => {
+					if (!open) return;
+					const away = (ev) => {
+						if (boxRef.current !== null && !boxRef.current.contains(ev.target)) setOpen(false);
+					};
+					const esc = (ev) => {
+						if (ev.key === "Escape") { setOpen(false); boxRef.current?.querySelector(".dsg-picker-btn")?.focus(); }
+					};
+					document.addEventListener("pointerdown", away);
+					document.addEventListener("keydown", esc);
+					return () => {
+						document.removeEventListener("pointerdown", away);
+						document.removeEventListener("keydown", esc);
+					};
+				}, [open]);
+				return h("div", { className: "dsg-picker", ref: boxRef },
+					h("button", {
+						type: "button",
+						className: "dsg-picker-btn",
+						"aria-haspopup": "listbox",
+						"aria-expanded": open ? "true" : "false",
+						onClick: () => setOpen((v) => !v),
+					},
+					h("span", null, label),
+					h("span", { className: "dsg-picker-caret" }),
+					),
+					h(MotionBox, { show: open, className: "dsg-picker-menu", role: "listbox" },
+							list.map((g) => h("button", {
+								key: g.id,
+								type: "button",
+								role: "option",
+								className: "dsg-picker-item",
+								onClick: () => {
+									setOpen(false);
+									onPick(g.id);
+								},
+							}, g.name)),
+						),
+				);
+			}
+
+
 			function GroupsPage(props) {
 				const tPage = props?.t ?? t;
 				const [, setTick] = React.useState(0);
@@ -2507,12 +2701,26 @@ window.__ModuleLoader__.load({
 				const dragGidRef = React.useRef(null);
 				const [dropTarget, setDropTarget] = React.useState(null); // gid | "__loose" | "row:<id>:before"
 				const [flash, setFlash] = React.useState("");
+				const pageRef = React.useRef(null), sceneBefore = React.useRef(null), renameFeedback = React.useRef(null);
+				const flashTimer = React.useRef(null), flashText = React.useRef("");
+				if (flash) flashText.current = flash;
 
-				React.useLayoutEffect(() => { playPageFlip(); });
+				React.useLayoutEffect(() => {
+					playPageFlip();
+					if (sceneBefore.current && pageRef.current) {
+						playScene(sceneBefore.current, captureScene(pageRef.current, ".dsg-card,.dsg-row", sceneKey), { reorder: false, highlight: true });
+						sceneBefore.current = null;
+					}
+					if (renameFeedback.current && pageRef.current) {
+						const card = [...pageRef.current.querySelectorAll(".dsg-card[data-dsg-gid]")].find((el) => el.dataset.dsgGid === renameFeedback.current);
+						uiArrival(card?.querySelector(".dsg-cardname"));
+						renameFeedback.current = null;
+					}
+				});
 				React.useEffect(() => {
 					const bump = () => setTick((v) => v + 1);
 					pageListeners.add(bump);
-					return () => { pageListeners.delete(bump); pageRowDrag?.cleanup(); pendingPageFlip = null; };
+					return () => { pageListeners.delete(bump); pageRowDrag?.cleanup(); pendingPageFlip = null; clearTimeout(flashTimer.current); };
 				}, []);
 
 				React.useEffect(() => {
@@ -2543,16 +2751,27 @@ window.__ModuleLoader__.load({
 					return names.slice(0, 2).join(" / ") || "—";
 				};
 				const say = (msg) => {
+					clearTimeout(flashTimer.current);
 					setFlash(msg);
-					setTimeout(() => setFlash(""), 1600);
+					flashTimer.current = setTimeout(() => setFlash(""), 1600);
 				};
 
 				const commit = (msg) => {
+					if (pageRef.current && !uiMedia.matches) {
+						sceneBefore.current ??= captureScene(pageRef.current, ".dsg-card,.dsg-row", sceneKey);
+						flipPage(snapshotPage());
+					}
 					save();
 					// 带动画同步：隐藏/移出时右侧导航里那一条应该淡出塌掉，而不是凭空消失
 					sync(true);
 					notifyPage();
 					if (msg !== undefined) say(msg);
+				};
+				const finishRename = (g) => {
+					const name = renameText.trim();
+					if (!name) return;
+					g.name = name; renameFeedback.current = g.id;
+					setRenaming(null); commit(tPage("renamed"));
 				};
 
 				const addGroup = () => {
@@ -2711,55 +2930,6 @@ window.__ModuleLoader__.load({
 				const ICON_EXIT = "M9.5 3H12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9.5";
 				const ICON_EXIT_ARROW = "M8.5 8H2.5M5.5 5.5 2.5 8l3 2.5";
 
-				/**
-				 * 自定义下拉：原生 <select> 在浅色主题里是「白底 + 蓝条 + 黑边框」，
-				 * 跟整套灰调格格不入，而且没法跟主题变量走。这里自己画一个。
-				 */
-				function GroupPicker({ groups: list, label, onPick }) {
-					const [open, setOpen] = React.useState(false);
-					const boxRef = React.useRef(null);
-					React.useEffect(() => {
-						if (!open) return;
-						const away = (ev) => {
-							if (boxRef.current !== null && !boxRef.current.contains(ev.target)) setOpen(false);
-						};
-						const esc = (ev) => {
-							if (ev.key === "Escape") setOpen(false);
-						};
-						document.addEventListener("pointerdown", away);
-						document.addEventListener("keydown", esc);
-						return () => {
-							document.removeEventListener("pointerdown", away);
-							document.removeEventListener("keydown", esc);
-						};
-					}, [open]);
-					return h("div", { className: "dsg-picker", ref: boxRef },
-						h("button", {
-							type: "button",
-							className: "dsg-picker-btn",
-							"aria-haspopup": "listbox",
-							"aria-expanded": open ? "true" : "false",
-							onClick: () => setOpen((v) => !v),
-						},
-						h("span", null, label),
-						h("span", { className: "dsg-picker-caret" }),
-						),
-						open
-							? h("div", { className: "dsg-picker-menu", role: "listbox" },
-								list.map((g) => h("button", {
-									key: g.id,
-									type: "button",
-									role: "option",
-									className: "dsg-picker-item",
-									onClick: () => {
-										setOpen(false);
-										onPick(g.id);
-									},
-								}, g.name)),
-							)
-							: null,
-					);
-				}
 
 				/** 顶部固定项：只有排序和隐藏，没有分组。 */
 				const pinnedRow = (id, index) => h("div", {
@@ -2838,8 +3008,8 @@ window.__ModuleLoader__.load({
 						},
 					},
 					h("div", { className: "dsg-cardhead" },
-						renaming === g.id
-							? h(React.Fragment, null,
+						h("div", { className: "dsg-title-stage" },
+						h(MotionBox, { show: renaming === g.id, className: "dsg-title-view" },
 								h("input", {
 									className: "dsg-input",
 									value: renameText,
@@ -2847,10 +3017,7 @@ window.__ModuleLoader__.load({
 									onChange: (e) => setRenameText(e.target.value),
 									onKeyDown: (e) => {
 										if (e.key === "Enter") {
-											const name = renameText.trim();
-											if (name !== "") g.name = name;
-											setRenaming(null);
-											commit();
+											finishRename(g);
 										}
 										if (e.key === "Escape") setRenaming(null);
 									},
@@ -2859,15 +3026,12 @@ window.__ModuleLoader__.load({
 									type: "button",
 									className: "dsg-btn",
 									onClick: () => {
-										const name = renameText.trim();
-										if (name !== "") g.name = name;
-										setRenaming(null);
-										commit();
+										finishRename(g);
 									},
 								}, tPage("save")),
 								h("button", { type: "button", className: "dsg-btn dsg-btn-ghost", onClick: () => setRenaming(null) }, tPage("cancel")),
-							)
-							: h(React.Fragment, null,
+							),
+							h(MotionBox, { show: renaming !== g.id, className: "dsg-title-view" },
 								h("span", { className: "dsg-cardname" }, g.name),
 								h("span", { className: "dsg-cardcount" }, tPage("itemsCount").replace("{n}", String(items.length))),
 								h("button", {
@@ -2906,8 +3070,7 @@ window.__ModuleLoader__.load({
 									onClick: () => setConfirmGid((cur) => (cur === g.id ? null : g.id)),
 								}, iconEl(ICON_TRASH, ICON_TRASH_LINES)),
 								// 就地确认：气泡挂在卡片头下方，不弹系统 confirm
-								confirmGid === g.id
-									? h("div", { className: "dsg-confirm" },
+								h(MotionBox, { show: confirmGid === g.id, className: "dsg-confirm" },
 										h("p", { className: "dsg-confirm-text" }, tPage("confirmDelete").replace("{name}", g.name)),
 										h("div", { className: "dsg-confirm-actions" },
 											h("button", {
@@ -2919,58 +3082,22 @@ window.__ModuleLoader__.load({
 												type: "button",
 												className: "dsg-btn dsg-confirm-danger",
 												onClick: () => {
-													// 先把卡片淡出，再真正删掉；删完让下面的滑上来
-													const cardEl = [...document.querySelectorAll(".dsg-page .dsg-card")]
-														.find((c) => c.querySelector(".dsg-cardname")?.textContent === g.name);
-													const before = new Map();
-													for (const card of document.querySelectorAll(".dsg-page .dsg-card")) {
-														if (card.querySelector(".dsg-cardname") === null) continue;
-														before.set(card, card.getBoundingClientRect());
-													}
+													// 删除也共用补位，避免两次 requestAnimationFrame 先跳到终点。
+													const cardEl = [...document.querySelectorAll(".dsg-page .dsg-card[data-dsg-gid]")].find((c) => c.dataset.dsgGid === g.id);
+													let done = false;
 													const finish = () => {
-														before.delete(cardEl);
-														removeGroup(g.id);
-														setConfirmGid(null);
-														commit();
-														requestAnimationFrame(() => {
-															requestAnimationFrame(() => {
-																for (const [card, oldRect] of before) {
-																	if (!card.isConnected) continue;
-																	const now = card.getBoundingClientRect();
-																	const dx = oldRect.left - now.left;
-																	const dy = oldRect.top - now.top;
-																	if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
-																	try {
-																		card.animate(
-																			[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
-																			{ duration: 260, easing: "cubic-bezier(.2,.7,.3,1)" },
-																		);
-																	} catch (_ignored) {
-																		/* noop */
-																	}
-																}
-															});
-														});
+														if (done) return;
+														done = true;
+														removeGroup(g.id); setConfirmGid(null); commit();
 													};
-													if (cardEl === undefined) {
-														finish();
-														return;
-													}
-													try {
-														const anim = cardEl.animate(
-															[{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.96)" }],
-															{ duration: 170, easing: "ease-in", fill: "forwards" },
-														);
-														anim.finished.then(finish).catch(finish);
-													} catch (_ignored) {
-														finish();
-													}
+													const anim = uiAnimate(cardEl, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.98)" }], { id: "dsg-group-delete", duration: 170, fill: "forwards" });
+													if (anim) anim.finished.then(finish, () => {}); else finish();
 												},
 											}, tPage("delConfirm")),
 										),
-									)
-									: null,
+									),
 							),
+						),
 					),
 					items.length === 0
 						? h("p", { className: "dsg-empty" }, tPage("groupEmpty"))
@@ -2978,7 +3105,7 @@ window.__ModuleLoader__.load({
 					);
 				};
 
-				return h("div", { className: "dsg-page" },
+				return h("div", { className: "dsg-page", ref: pageRef },
 					// 主标题区：图标 + 大标题 + 副标题 + 右上角标签
 					h("div", { className: "dsg-hero" },
 						h("div", { className: "dsg-hero-left" },
@@ -3130,6 +3257,7 @@ window.__ModuleLoader__.load({
 								return h("div", {
 									key: `h-${id}`,
 									className: "dsg-row",
+									"data-dsg-hidden": id,
 									"data-stale": live ? undefined : "1",
 								},
 								h("span", { className: "dsg-rowgrip", style: { visibility: "hidden" } }, "⠿"),
@@ -3189,7 +3317,9 @@ window.__ModuleLoader__.load({
 							},
 						}, tPage("reset")),
 					),
-					flash === "" ? null : h("p", { className: "dsg-hint", style: { color: "var(--dsw-alias-state-success-primary,#46a758)" } }, flash),
+					h("div", { className: "dsg-feedback", role: "status", "aria-live": "polite", "aria-atomic": "true" },
+						h(MotionBox, { show: flash !== "", className: "dsg-toast" }, flash || flashText.current),
+					),
 				);
 			}
 
@@ -3363,7 +3493,16 @@ window.__ModuleLoader__.load({
 				const track = nav.querySelector("[data-dsg-switch-track]");
 				const indicator = track ? getComputedStyle(track, "::before") : null;
 				const switcher = indicator ? { transform: indicator.transform, opacity: indicator.opacity, width: indicator.width, height: indicator.height } : null;
-				ptFrame = { panel, rect, regions, scrolls, switcher };
+				const moving = new Set([...panel.querySelectorAll("[data-dsg-presence]")]);
+				for (const motion of uiMotions) if (motion.effect?.target instanceof Element && panel.contains(motion.effect.target)) moving.add(motion.effect.target);
+				const motions = [];
+				for (const el of moving) {
+					const path = [];
+					for (let cursor = el; cursor !== panel; cursor = cursor.parentElement) path.unshift([...cursor.parentElement.children].indexOf(cursor));
+					const cs = getComputedStyle(el);
+					motions.push({ path, opacity: cs.opacity, transform: cs.transform, boxShadow: cs.boxShadow });
+				}
+				ptFrame = { panel, rect, regions, scrolls, switcher, motions };
 			};
 
 			/** 真正卸载后冻结一份静态画面，整块同步淡出；重新打开时立即清掉旧快照。 */
@@ -3398,6 +3537,11 @@ window.__ModuleLoader__.load({
 						for (const [key, value] of Object.entries(frame.switcher)) {
 							track.style.setProperty(`--dsg-switch-${key === "width" ? "w" : key === "height" ? "h" : key}`, value);
 						}
+					}
+					for (const { path, ...styles } of frame?.motions ?? []) {
+						let el = ghost;
+						for (const index of path) el = el?.children[index];
+						if (el) Object.assign(el.style, styles);
 					}
 					const st = ghost.style;
 					Object.assign(st, { position: "fixed", inset: "auto", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, boxSizing: "border-box", margin: "0", transform: "none", scale: "none", translate: "none", rotate: "none", pointerEvents: "none", zIndex: "2147483000", transition: "none" });

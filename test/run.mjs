@@ -651,18 +651,18 @@ check('管理页没有原生 select', (await page.locator('.dsg-page select').co
 check('管理页没有原生 checkbox', (await page.locator('.dsg-page input[type=checkbox]').count()) === 0)
 
 await page.evaluate(() => document.querySelector('.dsg-picker-btn')?.click())
-await page.waitForTimeout(160)
+await page.waitForTimeout(60)
 const pickerMenu = await page.evaluate(() => {
 	const menu = document.querySelector('.dsg-picker-menu')
 	if (menu === null) return null
 	return {
 		items: [...menu.querySelectorAll('.dsg-picker-item')].map((x) => x.textContent),
-		anim: getComputedStyle(menu).animationName,
+		anim: menu.getAnimations().map((a) => a.id).join(','),
 		radius: getComputedStyle(menu).borderRadius,
 	}
 })
 check('自定义下拉能展开', pickerMenu !== null && pickerMenu.items.length > 0, JSON.stringify(pickerMenu?.items))
-check('下拉浮层有进场动画', pickerMenu !== null && pickerMenu.anim.includes('dsgMenuIn'), String(pickerMenu?.anim))
+check('下拉浮层有进场动画', pickerMenu !== null && pickerMenu.anim.includes('dsg-presence'), String(pickerMenu?.anim))
 check('下拉浮层是圆角不是方角', pickerMenu !== null && pickerMenu.radius !== '0px', String(pickerMenu?.radius))
 await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
 await page.waitForTimeout(120)
@@ -1533,6 +1533,130 @@ await switchPage.waitForTimeout(500)
 await switchPage.evaluate(() => { for (const fn of window.__effectCleanups) if (typeof fn === 'function') fn() })
 check('停用插件后清除指示器和按钮背景覆盖', await switchPage.locator('[data-dsg-switch-track], [data-dsg-switch-active]').count() === 0)
 await switchContext.close()
+
+// ---- 17. 搜索、新建、移组、浮层退场、重命名和不占位提示 ----
+const interactionContext = await browser.newContext({ viewport: { width: 1300, height: 1200 } })
+const interactionPage = await interactionContext.newPage()
+interactionPage.on('pageerror', (error) => errors.push(String(error)))
+await page.evaluate(() => fetch('/__reset'))
+await interactionPage.addInitScript(() => {
+	if (localStorage.getItem('dsh.settingsGroups.v1')) return
+	localStorage.setItem('dsh.settingsGroups.v1', JSON.stringify({ v: 1, enabled: true, updatedAt: Date.now(),
+		groups: [{ id: 'ia', name: '功能甲', entries: ['dsh-commandcode'], open: true }, { id: 'ib', name: '功能乙', entries: ['dsh-read-aloud'], open: true }], hidden: [], loose: [],
+	}))
+})
+await interactionPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' })
+await interactionPage.waitForTimeout(600)
+const searchMotion = await interactionPage.evaluate(async () => {
+	const list = document.querySelector('#navlist'), item = list.querySelector('[data-section="dsh-meme"]'), input = list.querySelector('input')
+	const y0 = item.getBoundingClientRect().top
+	input.value = '表情'; input.dispatchEvent(new Event('input', { bubbles: true }))
+	await new Promise((r) => setTimeout(r, 65))
+	const mid = item.getBoundingClientRect().top
+	const motion = item.getAnimations().some((a) => a.id === 'dsg-search-reorder')
+	const layer = document.querySelector('[data-dsg-motion-layer]')
+	const inert = layer?.inert && getComputedStyle(layer).pointerEvents === 'none'
+	await new Promise((r) => setTimeout(r, 250))
+	return { y0, mid, end: item.getBoundingClientRect().top, motion, inert }
+})
+check('搜索结果补位有真实中间帧', searchMotion.motion && searchMotion.mid < searchMotion.y0 && searchMotion.mid > searchMotion.end, JSON.stringify(searchMotion))
+check('搜索退出画面不拦截点击和键盘', searchMotion.inert, JSON.stringify(searchMotion))
+await interactionPage.locator('.dsg-search-input').fill('')
+await interactionPage.waitForTimeout(30)
+await interactionPage.locator('.dsg-search-input').fill('语音')
+await interactionPage.waitForTimeout(30)
+await interactionPage.locator('.dsg-search-input').fill('')
+await interactionPage.waitForTimeout(350)
+check('快速搜索与清空后无残留画面且所有条目恢复', await interactionPage.locator('[data-dsg-motion-layer]').count() === 0 && await interactionPage.locator('#navlist > .nav-item:visible').count() === 13)
+const newGroupMotion = await interactionPage.evaluate(async () => {
+	const card = document.querySelector('.dsg-card[data-dsg-bucket="loose"]'), before = card.getBoundingClientRect().top
+	const input = document.querySelector('.dsg-new input')
+	Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '新增动效')
+	input.dispatchEvent(new Event('input', { bubbles: true }))
+	await new Promise((r) => setTimeout(r, 0))
+	document.querySelector('.dsg-create').click()
+	await new Promise((r) => setTimeout(r, 60))
+	const created = [...document.querySelectorAll('.dsg-card[data-dsg-gid]')].find((el) => el.querySelector('.dsg-cardname')?.textContent === '新增动效')
+	const result = { before, mid: card.getBoundingClientRect().top, opacity: created ? Number(getComputedStyle(created).opacity) : -1,
+		enter: created?.getAnimations().some((a) => a.id === 'dsg-scene-enter'), moving: card.getAnimations().some((a) => a.id === 'dsg-page-reorder') }
+	await new Promise((r) => setTimeout(r, 330))
+	return { ...result, end: card.getBoundingClientRect().top }
+})
+check('新建卡片淡入且下面卡片同步让位', newGroupMotion.enter && newGroupMotion.moving && newGroupMotion.opacity > 0 && newGroupMotion.opacity < 1 && newGroupMotion.mid > newGroupMotion.before && newGroupMotion.mid < newGroupMotion.end, JSON.stringify(newGroupMotion))
+const rowSelector = '.dsg-page [data-dsg-entry="dsh-meme"]'
+await interactionPage.locator(`${rowSelector} .dsg-picker-btn`).evaluate((el) => el.click())
+await interactionPage.waitForTimeout(50)
+await interactionPage.locator('.dsg-new input').fill('不应重建菜单')
+check('管理页其他输入变化不会卸载打开的菜单', await interactionPage.locator(`${rowSelector} .dsg-picker-menu`).count() === 1)
+await interactionPage.locator(`${rowSelector} .dsg-picker-btn`).evaluate((el) => el.click())
+await interactionPage.waitForTimeout(45)
+const menuExit = await interactionPage.locator(`${rowSelector} .dsg-picker-menu`).evaluate((el) => ({ inert: el.inert, pointer: getComputedStyle(el).pointerEvents, opacity: Number(getComputedStyle(el).opacity), out: el.dataset.dsgPresence }))
+check('菜单关闭期间淡出且立刻停止接收操作', menuExit.inert && menuExit.pointer === 'none' && menuExit.out === 'out' && menuExit.opacity > 0 && menuExit.opacity < 1, JSON.stringify(menuExit))
+await interactionPage.locator(`${rowSelector} .dsg-picker-btn`).evaluate((el) => el.click())
+await interactionPage.waitForTimeout(220)
+check('关闭途中重开只保留一份可操作菜单', await interactionPage.locator(`${rowSelector} .dsg-picker-menu`).count() === 1 && await interactionPage.locator(`${rowSelector} .dsg-picker-menu`).evaluate((el) => !el.inert && Number(getComputedStyle(el).opacity) === 1))
+await interactionPage.locator(`${rowSelector} .dsg-picker-item`).filter({ hasText: '功能甲' }).evaluate((el) => el.click())
+await interactionPage.waitForTimeout(60)
+const moveArrival = await interactionPage.locator('.dsg-page [data-dsg-gid="ia"] [data-dsg-entry="dsh-meme"]').evaluate((el) => ({ opacity: Number(getComputedStyle(el).opacity), motions: el.getAnimations().map((a) => a.id) }))
+check('移组目标淡入并短暂高亮', moveArrival.opacity > 0 && moveArrival.opacity < 1 && moveArrival.motions.includes('dsg-scene-enter') && moveArrival.motions.includes('dsg-arrival'), JSON.stringify(moveArrival))
+check('移组原位置保留短暂退场画面', await interactionPage.locator('[data-dsg-motion-layer]').count() === 1)
+await interactionPage.waitForTimeout(450)
+await interactionPage.locator(`${rowSelector} .dsg-hide`).evaluate((el) => el.click())
+await interactionPage.waitForTimeout(60)
+const hiddenArrival = await interactionPage.locator('.dsg-page [data-dsg-hidden="dsh-meme"]').evaluate((el) => el.getAnimations().map((a) => a.id))
+check('隐藏条目在已隐藏区域有到达反馈', hiddenArrival.includes('dsg-scene-enter') && hiddenArrival.includes('dsg-arrival'), JSON.stringify(hiddenArrival))
+await interactionPage.waitForTimeout(450)
+await interactionPage.locator('.dsg-page [data-dsg-hidden="dsh-meme"] button').evaluate((el) => el.click())
+await interactionPage.waitForTimeout(60)
+check('恢复条目在未分组区域有到达反馈', await interactionPage.locator(rowSelector).evaluate((el) => el.closest('[data-dsg-bucket]')?.dataset.dsgBucket === 'loose' && el.getAnimations().some((a) => a.id === 'dsg-arrival')))
+await interactionPage.waitForTimeout(450)
+const groupSelector = '.dsg-page .dsg-card[data-dsg-gid="ia"]'
+await interactionPage.locator(`${groupSelector} button[title="重命名"]`).evaluate((el) => el.click())
+await interactionPage.waitForTimeout(50)
+const renameTransition = await interactionPage.locator(groupSelector).evaluate((card) => ({ out: [...card.querySelectorAll('.dsg-title-view')].some((el) => el.dataset.dsgPresence === 'out' && el.inert), focused: card.contains(document.activeElement) && document.activeElement.tagName === 'INPUT' }))
+check('重命名标题淡出且输入框自动获得焦点', renameTransition.out && renameTransition.focused, JSON.stringify(renameTransition))
+await interactionPage.locator(`${groupSelector} input`).fill('功能甲改名')
+await interactionPage.locator(`${groupSelector} input`).press('Enter')
+await interactionPage.waitForTimeout(60)
+check('保存重命名后标题更新并高亮确认', await interactionPage.locator(`${groupSelector} .dsg-cardname`).evaluate((el) => el.textContent === '功能甲改名' && el.getAnimations().some((a) => a.id === 'dsg-arrival')))
+await interactionPage.waitForTimeout(450)
+await interactionPage.locator(`${groupSelector} .dsg-danger`).evaluate((el) => el.click())
+await interactionPage.waitForTimeout(200)
+await interactionPage.locator(`${groupSelector} .dsg-confirm .dsg-btn`).first().evaluate((el) => el.click())
+await interactionPage.waitForTimeout(45)
+check('取消删除时确认气泡平滑退出且不可点击', await interactionPage.locator(`${groupSelector} .dsg-confirm`).evaluate((el) => el.inert && el.dataset.dsgPresence === 'out' && Number(getComputedStyle(el).opacity) > 0))
+await interactionPage.waitForTimeout(220)
+check('确认气泡退场结束后清除', await interactionPage.locator('.dsg-confirm').count() === 0)
+const toastLayout = await interactionPage.evaluate(async () => {
+	const root = document.querySelector('.dsg-page'), content = document.querySelector('#content'), toast = document.querySelector('.dsg-toast')
+	const before = { height: root.getBoundingClientRect().height, scroll: content.scrollHeight }
+	await new Promise((r) => setTimeout(r, 1800))
+	return { before, after: { height: root.getBoundingClientRect().height, scroll: content.scrollHeight }, hadToast: !!toast, removed: !document.querySelector('.dsg-toast') }
+})
+check('成功提示显示和消失都不撑动内容', toastLayout.hadToast && toastLayout.removed && JSON.stringify(toastLayout.before) === JSON.stringify(toastLayout.after), JSON.stringify(toastLayout))
+await interactionPage.emulateMedia({ reducedMotion: 'reduce' })
+await interactionPage.locator(rowSelector + ' .dsg-picker-btn').evaluate((el) => el.click())
+await interactionPage.waitForTimeout(30)
+await interactionPage.keyboard.press('Escape')
+await interactionPage.waitForTimeout(30)
+check('减少动态效果时菜单直接关闭并归还焦点', await interactionPage.locator('.dsg-picker-menu').count() === 0 && await interactionPage.locator(`${rowSelector} .dsg-picker-btn`).evaluate((el) => el === document.activeElement))
+await interactionPage.locator(`${rowSelector} .dsg-hide`).evaluate((el) => el.click())
+await interactionPage.waitForTimeout(60)
+check('减少动态效果时移组不产生动画或退出副本', await interactionPage.locator('[data-dsg-motion-layer]').count() === 0 && await interactionPage.locator('.dsg-page [data-dsg-hidden="dsh-meme"]').evaluate((el) => el.getAnimations().length === 0))
+await interactionPage.emulateMedia({ reducedMotion: 'no-preference' })
+await interactionPage.locator('.dsg-page [data-dsg-hidden="dsh-meme"] button').evaluate((el) => el.click())
+await interactionPage.waitForTimeout(30)
+await interactionPage.evaluate(() => document.getElementById('btn-open').click())
+await interactionPage.waitForTimeout(50)
+check('动效中关闭设置立即清理条目退出画面', await interactionPage.locator('[data-dsg-motion-layer]').count() === 0)
+await interactionPage.waitForTimeout(450)
+await interactionPage.evaluate(() => document.getElementById('btn-open').click())
+await interactionPage.waitForTimeout(500)
+await interactionPage.locator(`${rowSelector} .dsg-hide`).evaluate((el) => el.click())
+await interactionPage.waitForTimeout(30)
+await interactionPage.evaluate(() => { for (const fn of window.__effectCleanups) if (typeof fn === 'function') fn() })
+check('停用插件立即清理新动效的退出副本', await interactionPage.locator('[data-dsg-motion-layer]').count() === 0)
+await interactionContext.close()
 
 check('全程无 JS 报错', errors.length === 0, errors.slice(0, 3).join(' | '))
 
