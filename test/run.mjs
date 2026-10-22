@@ -177,9 +177,38 @@ const dnd = ({ srcLabel, srcChip, dstChip, dstLabel, part }) => page.evaluate(({
 	fire(src, 'dragend')
 }, { srcLabel, srcChip, dstChip, dstLabel, part })
 
+// 条目也换成「长按浮起」了，用 pointer 协议驱动
+const pointerDragItem = (srcLabel, dst, part) => page.evaluate(async ({ srcLabel, dst, part }) => {
+	const items = [...document.querySelectorAll('.nav-item')]
+	const src = items.find((b) => (b.textContent ?? '').trim() === srcLabel)
+	if (src === undefined) return 'no-source'
+	const target = dst.chip !== undefined
+		? [...document.querySelectorAll('.dsg-chip')].find((c) => c.children[1].textContent === dst.chip)
+		: items.find((b) => (b.textContent ?? '').trim() === dst.label)
+	if (target === undefined || target === null) return 'no-target'
+	const a = src.getBoundingClientRect()
+	const b = target.getBoundingClientRect()
+	const sx = a.left + 40
+	const sy = a.top + a.height / 2
+	const tx = b.left + Math.min(b.width / 2, 60)
+	const ty = part === 'middle' ? b.top + b.height / 2 : part === 'top' ? b.top + 4 : b.bottom - 4
+	const fire = (el, type, x, y) => el.dispatchEvent(new PointerEvent(type, {
+		bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 4,
+	}))
+	fire(src, 'pointerdown', sx, sy)
+	await new Promise((r) => setTimeout(r, 280))
+	for (let i = 1; i <= 5; i += 1) {
+		fire(document, 'pointermove', sx + ((tx - sx) * i) / 5, sy + ((ty - sy) * i) / 5)
+		await new Promise((r) => setTimeout(r, 22))
+	}
+	fire(document, 'pointerup', tx, ty)
+	await new Promise((r) => setTimeout(r, 400))
+	return 'ok'
+}, { srcLabel, dst, part })
+
 const dragItemToChip = async (label, chipName) => {
-	await dnd({ srcLabel: label, dstChip: chipName, part: 'middle' })
-	await page.waitForTimeout(260)
+	await pointerDragItem(label, { chip: chipName }, 'middle')
+	await page.waitForTimeout(200)
 }
 
 // 分组标签用的是「长按浮起」那套 pointer 拖拽，不是 HTML5 DnD —— 测试要照它的协议来

@@ -1518,6 +1518,155 @@ window.__ModuleLoader__.load({
 				});
 			};
 
+			/**
+			 * 设置条目（导航里的小行）的手指拖拽。
+			 * 跟核心项同一套手感，但落点更多：落到分组标签上 = 归组，落到未分组 = 移出，
+			 * 落到另一个条目上 = 在它旁边排序（组内或未分组内）。
+			 */
+			const bindItemPointerDrag = (el, id) => {
+				if (el.dataset.dsgPtrBound === "1") return;
+				el.dataset.dsgPtrBound = "1";
+				let timer = 0;
+				let startX = 0;
+				let startY = 0;
+				let ghost = null;
+				let grabX = 0;
+				let grabY = 0;
+				let lastKey = "\u0000";
+				let dragging = false;
+
+				const cleanup = () => {
+					if (timer !== 0) {
+						clearTimeout(timer);
+						timer = 0;
+					}
+					if (ghost !== null) {
+						ghost.remove();
+						ghost = null;
+					}
+					el.style.opacity = "";
+					document.body.style.cursor = "";
+					document.removeEventListener("pointermove", onMove, true);
+					document.removeEventListener("pointerup", onUp, true);
+					document.removeEventListener("pointercancel", onUp, true);
+					document.removeEventListener("pointerup", cancelTimer, true);
+					clearDropMarks();
+					dragging = false;
+				};
+
+				function cancelTimer() {
+					if (timer !== 0) {
+						clearTimeout(timer);
+						timer = 0;
+					}
+					document.removeEventListener("pointerup", cancelTimer, true);
+				}
+
+				const hitAt = (x, y) => {
+					const raw = document.elementFromPoint(x, y);
+					if (raw === null) return null;
+					const chip = raw.closest?.(".dsg-chip");
+					if (chip !== null && chip !== undefined) {
+						if (chip.dataset.dsgChip === "loose") return { kind: "loose" };
+						const rect = chip.getBoundingClientRect();
+						return { kind: "chip", gid: chip.dataset.dsgGid, after: y > rect.top + rect.height / 2 };
+					}
+					const btn = raw.closest?.("button");
+					if (btn !== null && btn !== undefined && btn !== el) {
+						const other = buttonId(btn);
+						if (other !== undefined && !isCore(other) && !state.hidden.includes(other)) {
+							const rect = btn.getBoundingClientRect();
+							const g = groupOf(other);
+							return { kind: "item", id: other, gid: g === undefined ? undefined : g.id, after: y > rect.top + rect.height / 2 };
+						}
+					}
+					return null;
+				};
+
+				const applyHit = (hit) => {
+					if (hit.kind === "loose") {
+						place(id, {});
+						save();
+						return;
+					}
+					if (hit.kind === "chip") {
+						place(id, { gid: hit.gid, anchorGid: hit.gid });
+						save();
+						return;
+					}
+					const where = hit.gid === undefined ? {} : { gid: hit.gid, anchorGid: hit.gid };
+					if (hit.after) where.after = hit.id;
+					else where.before = hit.id;
+					place(id, where);
+					// 拖动中每次都落盘：写盘本身有 250ms 节流，不会狂写
+					save();
+				};
+
+				const onMove = (e) => {
+					if (!dragging) {
+						if (Math.abs(e.clientX - startX) > 6 || Math.abs(e.clientY - startY) > 6) cancelTimer();
+						return;
+					}
+					e.preventDefault();
+					if (ghost !== null) {
+						ghost.style.transform = `translate3d(${Math.round(e.clientX - grabX)}px, ${Math.round(e.clientY - grabY)}px, 0) scale(1.02)`;
+					}
+					const hit = hitAt(e.clientX, e.clientY);
+					const key = hit === null ? "" : `${hit.kind}:${hit.gid ?? ""}:${hit.id ?? ""}:${hit.after}`;
+					if (key === lastKey) return;
+					lastKey = key;
+					if (hit === null) return;
+					const before = snapshotRects();
+					applyHit(hit);
+					sync();
+					flipRects(before);
+				};
+
+				const onUp = () => cleanup();
+
+				el.addEventListener("pointerdown", (e) => {
+					if (e.button !== 0) return;
+					startX = e.clientX;
+					startY = e.clientY;
+					if (timer !== 0) clearTimeout(timer);
+					document.addEventListener("pointerup", cancelTimer, true);
+					timer = setTimeout(() => {
+						timer = 0;
+						dragging = true;
+						const rect = el.getBoundingClientRect();
+						grabX = startX - rect.left;
+						grabY = startY - rect.top;
+						ghost = el.cloneNode(true);
+						ghost.removeAttribute("draggable");
+						ghost.removeAttribute("data-dsg-id");
+						Object.assign(ghost.style, {
+							position: "fixed",
+							left: "0px",
+							top: "0px",
+							width: `${Math.round(rect.width)}px`,
+							height: `${Math.round(rect.height)}px`,
+							margin: "0",
+							pointerEvents: "none",
+							zIndex: "2147483000",
+							transform: `translate3d(${Math.round(rect.left)}px, ${Math.round(rect.top)}px, 0) scale(1.02)`,
+							transformOrigin: "center center",
+							boxShadow: "0 10px 28px rgba(0,0,0,.2)",
+							borderRadius: "8px",
+							background: "var(--dsw-alias-bg-layer-1, #fff)",
+							transition: "none",
+						});
+						ghost.dataset.dsgFloating = "1";
+						document.body.appendChild(ghost);
+						el.style.opacity = "0.22";
+						document.body.style.cursor = "grabbing";
+						lastKey = "\u0000";
+						document.addEventListener("pointermove", onMove, true);
+						document.addEventListener("pointerup", onUp, true);
+						document.addEventListener("pointercancel", onUp, true);
+					}, 250);
+				});
+			};
+
 			const makeChip = (kind, gid) => {
 				const el = document.createElement("button");
 				el.type = "button";
@@ -2158,7 +2307,7 @@ window.__ModuleLoader__.load({
 						// 但悬停/选中的样式是按这个属性挂的。
 						btn.dataset.dsgItem = "1";
 						if (isCore(r.id)) bindCorePointerDrag(btn, r.id);
-						else bindItemDrag(btn);
+						else bindItemPointerDrag(btn, r.id);
 					}
 					layout(nav);
 					applyVisibility(animate);
