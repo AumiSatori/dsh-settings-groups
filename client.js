@@ -2045,6 +2045,15 @@ window.__ModuleLoader__.load({
 				".dsh-ptweak-rz:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.3))}",
 				".dsh-ptweak-grip::after{content:'';position:absolute;right:3px;bottom:3px;width:9px;height:9px;border-right:2px solid var(--dsw-alias-label-secondary,#8a8f98);border-bottom:2px solid var(--dsw-alias-label-secondary,#8a8f98);border-bottom-right-radius:3px;opacity:.45}",
 				".dsh-ptweak-grip:hover::after{opacity:.9}",
+				// —— 面板开关的进出场 ——
+				// 入：面板挂载时淡入 + 轻微放大到位。用独立的 scale 属性，不碰 transform
+				// —— 那个位置归拖拽用（inline transform 存着位移）。
+				"@keyframes dsgPanelIn{from{opacity:0;scale:.965}to{opacity:1;scale:1}}",
+				`${PT_SEL}{animation:dsgPanelIn .24s cubic-bezier(.2,.7,.3,1)}`,
+				// 出：宿主直接把 dialog 卸掉，我们来不及在它身上播动画。
+				// 所以移除瞬间留一张同尺寸快照在原地淡出，人眼看就是面板在退场。
+				"@keyframes dsgPanelOut{from{opacity:1;scale:1}to{opacity:0;scale:.965}}",
+				"[data-dsg-ghost=\"1\"]{animation:dsgPanelOut .22s cubic-bezier(.4,0,.9,.4) forwards}",
 				// ⚠️ 这里**不要**常驻 `will-change:transform`。
 				// 常驻会让设置面板整个生命周期都待在 GPU 合成层上，合成层里的文字
 				// 不走 subpixel antialiasing（LCD 次像素渲染），只剩灰度抗锯齿 ——
@@ -2070,6 +2079,53 @@ window.__ModuleLoader__.load({
 				let el = nav.nextElementSibling;
 				while (el !== null && el.classList.contains("dsh-ptweak-split")) el = el.nextElementSibling;
 				return el;
+			};
+
+			/** 面板最后一次可见时的位置/尺寸，退场快照要靠它定位。 */
+			let ptLastRect = null;
+
+			/**
+			 * 面板被宿主卸掉时，留一张同尺寸的快照在原地淡出。
+			 *
+			 * 为什么要克隆：React unmount 是直接把节点从 DOM 摘掉，没有"关闭前"这个
+			 * 可拦截的时机，元素一没，任何 transition/animation 都无处可播。
+			 * 克隆体是静态快照，不挂任何监听（cloneNode 也不复制 addEventListener），
+			 * 存活 220ms 后自毁，不会影响下一次打开。
+			 */
+			const ptGhostOut = (node) => {
+				const rect = ptLastRect;
+				if (rect === null || rect.width < 80 || rect.height < 80) return;
+				// 一次关闭只留一张，别被多条 mutation 重复克隆
+				if (document.querySelector('[data-dsg-ghost="1"]') !== null) return;
+				try {
+					const ghost = node.cloneNode(true);
+					// 去掉 id，避免和随后重建的真实面板撞车
+					for (const el of ghost.querySelectorAll("[id]")) el.removeAttribute("id");
+					ghost.removeAttribute("data-dsh-ptweak");
+					// 摘掉这个属性，否则它会匹配 `${PT_SEL}{animation:dsgPanelIn}`（特异性还更高），
+					// 快照就会播"入场"而不是"退场"
+					ghost.removeAttribute("data-shortcut-modal");
+					ghost.setAttribute("data-dsg-ghost", "1");
+					ghost.setAttribute("aria-hidden", "true");
+					const st = ghost.style;
+					st.position = "fixed";
+					st.left = `${Math.round(rect.left)}px`;
+					st.top = `${Math.round(rect.top)}px`;
+					st.width = `${Math.round(rect.width)}px`;
+					st.height = `${Math.round(rect.height)}px`;
+					st.margin = "0";
+					st.transform = "none";
+					st.pointerEvents = "none";
+					st.zIndex = "2147483000";
+					// inline 指定，别跟 CSS 特异性较劲
+					st.animation = "dsgPanelOut .22s cubic-bezier(.4,0,.9,.4) forwards";
+					document.body.appendChild(ghost);
+					const kill = () => ghost.remove();
+					ghost.addEventListener("animationend", kill);
+					setTimeout(kill, 500); // 双保险：animationend 万一没来
+				} catch (_ignored) {
+					/* 克隆失败就让它直接消失，不影响关闭本身 */
+				}
 			};
 
 			/** 当前激活的设置页按钮（用来判断"换人了"）。 */
@@ -2323,13 +2379,22 @@ window.__ModuleLoader__.load({
 				}, true);
 				const dropLayer = () => {
 					panel.style.willChange = "";
+					// 拖完立刻记一次：不然关面板时的退场快照会停在拖动前的位置
+					ptLastRect = panel.getBoundingClientRect();
 				};
 				panel.addEventListener("pointerup", dropLayer, true);
 				panel.addEventListener("pointercancel", dropLayer, true);
 			};
 
 			let ptQueued = false;
-			const ptObserver = new MutationObserver(() => {
+			const ptObserver = new MutationObserver((mutations) => {
+				// 先看有没有面板被摘掉 —— 这一步必须在扫描新 panel 之前，
+				// 否则 ptLastRect 会被下一次的布局覆盖成 null
+				for (const m of mutations) {
+					for (const node of m.removedNodes) {
+						if (node instanceof Element && node.matches?.(PT_SEL)) ptGhostOut(node);
+					}
+				}
 				if (ptQueued) return;
 				ptQueued = true;
 				setTimeout(() => {
@@ -2338,6 +2403,7 @@ window.__ModuleLoader__.load({
 					if (panel !== null) {
 						try {
 							ptDecorate(panel);
+							ptLastRect = panel.getBoundingClientRect();
 						} catch (error) {
 							console.warn("[dsh-settings-groups] panel tweak failed", error);
 						}

@@ -668,6 +668,41 @@ const dragClears = await page.evaluate(() => {
 })
 check('开始拖动时掐断残留过渡', dragClears === '', JSON.stringify(dragClears))
 
+// ---- 11.5 面板开关的进出场 ----
+const enterAnim = await page.evaluate(() => {
+	const dialog = document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]')
+	return getComputedStyle(dialog).animationName
+})
+check('面板打开时有入场动画', enterAnim.includes('dsgPanelIn'), enterAnim)
+
+// 关掉面板（harness 的按钮直接 unmount dialog），看有没有留快照
+const ghostState = await page.evaluate(async () => {
+	document.getElementById('btn-open').click()
+	await new Promise((r) => setTimeout(r, 60))
+	const g = document.querySelector('[data-dsg-ghost="1"]')
+	if (g === null) return { exists: false }
+	const cs = getComputedStyle(g)
+	return {
+		exists: true,
+		position: cs.position,
+		animation: cs.animationName,
+		pointerEvents: cs.pointerEvents,
+		// 快照本身就是 dialog 的克隆，属性一模一样 —— 必须排除掉才是在看"真面板没了没"
+		origin: document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]:not([data-dsg-ghost])') === null,
+	}
+})
+check('关闭时留了一张快照', ghostState.exists === true, JSON.stringify(ghostState))
+check('快照在原地淡出且不吃点击', ghostState.position === 'fixed' && ghostState.animation.includes('dsgPanelOut') && ghostState.pointerEvents === 'none', JSON.stringify(ghostState))
+check('快照出现时真面板已消失', ghostState.origin === true, String(ghostState.origin))
+
+await page.waitForTimeout(600)
+check('快照会自毁', (await page.evaluate(() => document.querySelector('[data-dsg-ghost="1"]') === null)))
+
+// 重新打开，别把后面晾在关闭状态
+await page.evaluate(() => document.getElementById('btn-open').click())
+await page.waitForTimeout(500)
+check('重新打开后面板回来', (await page.locator('[role="dialog"][aria-modal="true"]').count()) >= 1)
+
 // ---- 12. 旧插件配置迁移（省得重新配一遍）----
 await page.evaluate(async () => {
 	await fetch('/__reset')
