@@ -733,8 +733,8 @@ window.__ModuleLoader__.load({
 				".dsg-hero-title{margin:0;font-size:21px;line-height:28px;font-weight:700;letter-spacing:-.01em;color:var(--dsw-alias-label-primary,#1f1f22)}",
 				".dsg-hero-sub{margin:5px 0 0;font-size:13.5px;line-height:20px;color:var(--dsw-alias-label-secondary,#8a8a8a)}",
 				".dsg-hero-tag{flex:none;margin-top:6px;font-size:13px;line-height:18px;font-weight:600;color:var(--dsg-accent)}",
-				".dsg-subcard{display:flex;flex-direction:column;gap:6px;padding:16px 18px;border-radius:13px;background:rgba(127,127,127,.055)}",
-				".dsg-card{display:flex;flex-direction:column;gap:14px;padding:20px 22px;border-radius:16px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid rgba(127,127,127,.14);box-shadow:0 1px 2px rgba(0,0,0,.03)}",
+				".dsg-subcard{display:flex;flex-direction:column;gap:6px;padding:16px 18px;border-radius:13px;background:rgba(127,127,127,.055);box-shadow:inset 0 1px 2px rgba(0,0,0,.03)}",
+				".dsg-card{display:flex;flex-direction:column;gap:14px;padding:20px 22px;border-radius:16px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid rgba(127,127,127,.1);box-shadow:0 1px 2px rgba(0,0,0,.05),0 6px 20px -6px rgba(0,0,0,.1)}",
 				".dsg-card[data-over=\"1\"]{border-color:var(--dsg-accent,#4a7cf5);background:color-mix(in srgb, var(--dsg-accent,#4a7cf5) 7%, transparent)}",
 				".dsg-cardhead{display:flex;align-items:center;gap:8px;min-width:0}",
 				".dsg-cardname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#333)}",
@@ -772,7 +772,7 @@ window.__ModuleLoader__.load({
 				".dsg-picker-item:hover{background:rgba(127,127,127,.11)}",
 				".dsg-badge{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 9px;border-radius:999px;font-size:12px;line-height:1;font-weight:600;background:color-mix(in srgb, var(--dsw-alias-state-success-primary,#2ea043) 13%, transparent);color:var(--dsw-alias-state-success-primary,#2ea043)}",
 				".dsg-badge[data-off=\"1\"]{background:rgba(127,127,127,.12);color:var(--dsw-alias-label-secondary,#8a8a8a)}",
-				".dsg-status{display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:12px;background:rgba(127,127,127,.055);font-size:13px;line-height:19px;color:var(--dsw-alias-label-secondary,#8a8a8a)}",
+				".dsg-status{display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:12px;background:rgba(127,127,127,.055);box-shadow:0 1px 2px rgba(0,0,0,.03),0 4px 12px -6px rgba(0,0,0,.06);font-size:13px;line-height:19px;color:var(--dsw-alias-label-secondary,#8a8a8a)}",
 				".dsg-status-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--dsg-accent,#5b5bf6)}",
 				".dsg-hint{margin:0;color:var(--dsw-alias-label-secondary,#999);font-size:12.5px;line-height:19px}",
 				".dsg-warn{margin:0;padding:8px 10px;border-radius:8px;background:color-mix(in srgb, var(--dsw-alias-state-warn-primary,#f5a524) 12%, transparent);color:var(--dsw-alias-state-warn-primary,#b8770b);font-size:12px;line-height:18px}",
@@ -2378,6 +2378,8 @@ window.__ModuleLoader__.load({
 
 			/** 面板最后一次可见时的位置/尺寸，退场快照要靠它定位。 */
 			let ptLastRect = null;
+			/** 持续跟踪面板尺寸（挂载那一帧量到的常常是 0）。 */
+			let ptRectObs = null;
 
 			/**
 			 * 面板被宿主卸掉时，留一张同尺寸的快照在原地淡出。
@@ -2717,8 +2719,15 @@ window.__ModuleLoader__.load({
 						try {
 							ptDecorate(panel);
 							ptLastRect = panel.getBoundingClientRect();
-							// 刚挂载那一帧常常还没布局完（rect 全 0），退场时会因为尺寸判据被跳过。
-							// 等入场动画跑完再补测一次，之后拖动结束也会更新。
+							// 持续跟踪：挂载那一帧常常还没布局完（rect 全 0），
+							// 只靠"补测一次"仍会漏（面板被重建、入场动画改尺寸都会错过）。
+							if (ptRectObs === null) ptRectObs = new ResizeObserver(() => {
+								const live = document.querySelector(PT_SEL);
+								if (live !== null) ptLastRect = live.getBoundingClientRect();
+							});
+							ptRectObs.disconnect();
+							ptRectObs.observe(panel);
+							// 位置变化不触发 ResizeObserver（拖动），所以拖动结束也要补一次
 							setTimeout(() => {
 								const live = document.querySelector(PT_SEL);
 								if (live !== null) ptLastRect = live.getBoundingClientRect();
@@ -2744,6 +2753,10 @@ window.__ModuleLoader__.load({
 					if (ptWatcher !== null) {
 						ptWatcher.disconnect();
 						ptWatcher = null;
+					}
+					if (ptRectObs !== null) {
+						ptRectObs.disconnect();
+						ptRectObs = null;
 					}
 					ptStyle.remove();
 					for (const el of document.querySelectorAll(".dsh-ptweak-split, .dsh-ptweak-rz")) el.remove();
