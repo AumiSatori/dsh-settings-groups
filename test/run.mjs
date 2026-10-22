@@ -476,6 +476,51 @@ await page.evaluate(() => {
 await page.reload({ waitUntil: 'load' })
 await page.waitForTimeout(700)
 
+// ---- 9.7b 顶部固定项：也能排序和隐藏 ----
+const pinnedRows = () => page.evaluate(() => {
+	const section = [...document.querySelectorAll('.dsg-section')]
+		.find((x) => x.querySelector('.dsg-sectiontitle')?.textContent === '顶部固定项')
+	return section === undefined ? [] : [...section.querySelectorAll('.dsg-row .dsg-rowname')].map((x) => x.textContent)
+})
+const pinned = await pinnedRows()
+check('管理页有顶部固定项区', pinned.length >= 4, pinned.join(' / '))
+
+const beforePin = await navVisible()
+const moved = await page.evaluate(() => {
+	const section = [...document.querySelectorAll('.dsg-section')]
+		.find((x) => x.querySelector('.dsg-sectiontitle')?.textContent === '顶部固定项')
+	const row = [...section.querySelectorAll('.dsg-row')].find((r) => r.querySelector('.dsg-rowname')?.textContent === '模型')
+	const btn = [...row.querySelectorAll('button')].find((b) => b.textContent === '↑')
+	if (btn === undefined || btn.disabled) return false
+	btn.click()
+	return true
+})
+await page.waitForTimeout(400)
+const afterPin = await navVisible()
+check('固定项能上移', moved && afterPin.indexOf('模型') < beforePin.indexOf('模型'), `${beforePin.slice(0, 4).join('/')} → ${afterPin.slice(0, 4).join('/')}`)
+
+const hidCore = await page.evaluate(() => {
+	const section = [...document.querySelectorAll('.dsg-section')]
+		.find((x) => x.querySelector('.dsg-sectiontitle')?.textContent === '顶部固定项')
+	const row = [...section.querySelectorAll('.dsg-row')].find((r) => r.querySelector('.dsg-rowname')?.textContent === '账号与余额')
+	const btn = [...row.querySelectorAll('button')].find((b) => b.textContent === '⊘')
+	if (btn === undefined) return false
+	btn.click()
+	return true
+})
+await page.waitForTimeout(500)
+check('固定项能隐藏', hidCore && !(await navVisible()).includes('账号与余额'), (await navVisible()).slice(0, 4).join('/'))
+
+await page.evaluate(() => {
+	const section = [...document.querySelectorAll('.dsg-section')]
+		.find((x) => x.querySelector('.dsg-sectiontitle')?.textContent === '已隐藏')
+	const row = [...section.querySelectorAll('.dsg-row')].find((r) => r.textContent.includes('账号与余额'))
+	const btn = [...row.querySelectorAll('button')].find((b) => b.textContent === '取消隐藏')
+	btn.click()
+})
+await page.waitForTimeout(500)
+check('固定项能放回来', (await navVisible()).includes('账号与余额'), (await navVisible()).slice(0, 4).join('/'))
+
 // ---- 9.8 搜索 ----
 const typeSearch = async (q) => {
 	await page.fill('.dsg-search-input', q)

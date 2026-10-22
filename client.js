@@ -96,6 +96,8 @@ window.__ModuleLoader__.load({
 				hide: "隐藏这一项",
 				hideHint: "隐藏后导航里不再出现，配置还在，「已隐藏」里随时能放出来。",
 				hiddenHead: "已隐藏",
+				pinnedHead: "顶部固定项",
+				pinnedHint: "宿主自带的入口，始终排在导航最上面，不参与分组。顺序可以调，也可以整个藏掉。",
 				hiddenEmpty: "没有隐藏的设置项。",
 				hiddenDropHint: "把条目拖到这里 = 隐藏",
 				uninstalled: "已卸载",
@@ -157,6 +159,8 @@ window.__ModuleLoader__.load({
 				hide: "Hide this entry",
 				hideHint: "Hidden entries disappear from the nav but keep their config; bring them back from “Hidden”.",
 				hiddenHead: "Hidden",
+				pinnedHead: "Pinned",
+				pinnedHint: "Host-provided entries. They stay at the top and never join a group, but you can reorder or hide them.",
 				hiddenEmpty: "Nothing is hidden.",
 				hiddenDropHint: "Drop an entry here to hide it",
 				uninstalled: "not installed",
@@ -191,7 +195,7 @@ window.__ModuleLoader__.load({
 			 * folded 默认 false：装这个插件就是为了把条目拖来拖去，一进来就全收起来
 			 * 等于把可拖的东西藏了。想省地方再自己点那一行收起。
 			 */
-			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, folded: false, groups: [], loose: [], hidden: [], coreExtra: [] });
+			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, folded: false, groups: [], loose: [], hidden: [], coreExtra: [], coreOrder: [] });
 
 			const sanitize = (raw) => {
 				const next = defaults();
@@ -200,6 +204,7 @@ window.__ModuleLoader__.load({
 				if (typeof raw.enabled === "boolean") next.enabled = raw.enabled;
 				if (typeof raw.folded === "boolean") next.folded = raw.folded;
 				if (Array.isArray(raw.coreExtra)) next.coreExtra = raw.coreExtra.filter((x) => typeof x === "string");
+				if (Array.isArray(raw.coreOrder)) next.coreOrder = raw.coreOrder.filter((x) => typeof x === "string");
 				if (raw.migratedV1 === true) next.migratedV1 = true;
 				if (Array.isArray(raw.hidden)) next.hidden = raw.hidden.filter((x) => typeof x === "string");
 				if (Array.isArray(raw.loose)) next.loose = raw.loose.filter((x) => typeof x === "string");
@@ -478,6 +483,28 @@ window.__ModuleLoader__.load({
 				const known = new Set(out);
 				for (const r of rows) {
 					if (isCore(r.id) || inGroup.has(r.id) || known.has(r.id) || hidden.has(r.id)) continue;
+					out.push(r.id);
+				}
+				return out;
+			};
+
+			/**
+			 * 顶部固定项的顺序。
+			 *
+			 * 这些是宿主自带的入口，不参与分组，但**顺序和显隐可以调** ——
+			 * 显式记在 `coreOrder` 里，没记过的按台账 order 接在后面。
+			 */
+			const coreIds = () => {
+				const alive = rowIds();
+				const hidden = new Set(state.hidden);
+				const out = [];
+				for (const id of state.coreOrder) {
+					if (!alive.has(id) || hidden.has(id) || !isCore(id) || out.includes(id)) continue;
+					out.push(id);
+				}
+				const known = new Set(out);
+				for (const r of rows) {
+					if (!isCore(r.id) || hidden.has(r.id) || known.has(r.id)) continue;
 					out.push(r.id);
 				}
 				return out;
@@ -1240,17 +1267,19 @@ window.__ModuleLoader__.load({
 				const enter = [];
 				const leave = [];
 				for (const r of rows) {
-					if (isCore(r.id)) continue;
 					const btn = refs.get(r.id);
 					if (btn === undefined) continue;
 					// 正在过渡的按钮别插手，否则会把动画打断
 					if (btn.dataset.dsgAnim !== undefined) continue;
 					const g = groupOf(r.id);
 					// 隐藏优先于一切：藏起来的条目不管在不在组里、组展没展开，都不显示。
+					// 顶部固定项只受隐藏影响（它们没有"组展开"这回事）。
 					// 没有分组的时候「折叠未分组」这个状态没有意义，全部视为展开。
 					const visible = state.hidden.includes(r.id)
 						? false
-						: (g === undefined ? (state.groups.length === 0 || !state.folded) : g.open !== false);
+						: isCore(r.id)
+							? true
+							: (g === undefined ? (state.groups.length === 0 || !state.folded) : g.open !== false);
 					const prev = shownState.get(btn);
 					shownState.set(btn, visible);
 					if (prev === visible || prev === undefined) {
@@ -1297,9 +1326,8 @@ window.__ModuleLoader__.load({
 				}
 
 				const core = [];
-				for (const r of rows) {
-					if (!isCore(r.id)) continue;
-					const btn = refs.get(r.id);
+				for (const id of coreIds()) {
+					const btn = refs.get(id);
 					if (btn !== undefined) core.push(btn);
 				}
 				seq.push(...core);
@@ -1536,6 +1564,18 @@ window.__ModuleLoader__.load({
 				save();
 			};
 
+			/** 顶部固定项上移/下移（只在自己这一区里排，不进分组）。 */
+			const moveCore = (id, delta) => {
+				const list = coreIds();
+				const idx = list.indexOf(id);
+				const to = idx + delta;
+				if (idx < 0 || to < 0 || to >= list.length) return;
+				list.splice(idx, 1);
+				list.splice(to, 0, id);
+				state.coreOrder = list;
+				save();
+			};
+
 			/** 组内上移/下移 */
 			const moveEntry = (gid, id, delta) => {
 				const g = gid === undefined ? undefined : groupById(gid);
@@ -1573,6 +1613,7 @@ window.__ModuleLoader__.load({
 				}, []);
 
 				const groups = state.groups;
+				const coreList = coreIds();
 				const loose = looseIds();
 				// 不按台账过滤：卸载的插件也要留在清单里，否则用户既看不到也删不掉，
 				// 重装时又莫名其妙变成隐藏状态（"幽灵隐藏项"）。
@@ -1703,6 +1744,41 @@ window.__ModuleLoader__.load({
 						commit(tPage("hiddenDone"));
 					},
 				}, "⊘"),
+				);
+
+				/** 顶部固定项：只有排序和隐藏，没有分组。 */
+				const pinnedRow = (id, index) => h("div", { key: `p-${id}`, className: "dsg-row" },
+					h("span", { className: "dsg-rowgrip", style: { visibility: "hidden" } }, "⠿"),
+					h("span", { className: "dsg-rowname", title: labelOf(id) }, labelOf(id)),
+					h("button", {
+						type: "button",
+						className: "dsg-btn dsg-btn-ghost",
+						title: tPage("up"),
+						disabled: index === 0,
+						onClick: () => {
+							moveCore(id, -1);
+							commit();
+						},
+					}, "↑"),
+					h("button", {
+						type: "button",
+						className: "dsg-btn dsg-btn-ghost",
+						title: tPage("down"),
+						disabled: index === coreList.length - 1,
+						onClick: () => {
+							moveCore(id, 1);
+							commit();
+						},
+					}, "↓"),
+					h("button", {
+						type: "button",
+						className: "dsg-btn dsg-btn-ghost",
+						title: tPage("hideHint"),
+						onClick: () => {
+							hideEntry(id);
+							commit(tPage("hiddenDone"));
+						},
+					}, "⊘"),
 				);
 
 				const groupCard = (g, index) => {
@@ -1843,6 +1919,16 @@ window.__ModuleLoader__.load({
 							},
 						}),
 						h("button", { type: "button", className: "dsg-btn", onClick: addGroup, disabled: draft.trim() === "" }, tPage("create")),
+					),
+					h("div", { className: "dsg-section" },
+						h("div", { className: "dsg-sectionhead" },
+							h("span", { className: "dsg-sectiontitle" }, tPage("pinnedHead")),
+							h("span", { className: "dsg-cardcount" }, String(coreList.length)),
+						),
+						h("div", { className: "dsg-card" },
+							h("p", { className: "dsg-hint" }, tPage("pinnedHint")),
+							h("div", { className: "dsg-rows" }, coreList.map((id, i) => pinnedRow(id, i))),
+						),
 					),
 					h("div", { className: "dsg-section" },
 						h("div", { className: "dsg-sectionhead" },
@@ -2218,48 +2304,49 @@ window.__ModuleLoader__.load({
 				const dx = ptNum(saved.dx) ?? 0;
 				const dy = ptNum(saved.dy) ?? 0;
 				if (dx !== 0 || dy !== 0) panel.style.transform = ptTransform(dx, dy);
-				const header = content.firstElementChild;
-				if (header !== null) {
+				// ② 拖 header 移动面板 —— 用委托，不绑死在具体元素上。
+				// React 重建内容区时旧引用会失效，绑死在元素上会静默失灵（双击复位点不动就是这么来的）。
+				const headerOf = (panelEl) => {
+					const contentEl = ptContentOf(panelEl);
+					return contentEl === null ? null : contentEl.firstElementChild;
+				};
+				panel.addEventListener("dblclick", (ev) => {
+					const header = headerOf(panel);
+					if (header === null || !header.contains(ev.target)) return;
+					if (ev.target.closest(PT_HIT) !== null) return;
+					panel.style.transition = "transform .3s cubic-bezier(.2,.7,.3,1)";
+					panel.style.transform = "";
+					setTimeout(() => {
+						panel.style.transition = "";
+					}, 340);
+					ptWrite({ dx: 0, dy: 0 });
+				});
+				panel.addEventListener("pointerdown", (ev) => {
+					if (ev.button !== 0) return;
+					const header = headerOf(panel);
+					if (header === null || !header.contains(ev.target)) return;
+					if (ev.target.closest(PT_HIT) !== null) return;
+					ev.preventDefault();
 					header.classList.add("dsh-ptweak-header");
-					header.addEventListener("dblclick", (ev) => {
-						if (ev.target.closest(PT_HIT) !== null) return;
-						// 归位要滑，瞬移像"跳了一下"
-						panel.style.transition = "transform .3s cubic-bezier(.2,.7,.3,1)";
-						panel.style.transform = "";
-						setTimeout(() => {
-							panel.style.transition = "";
-						}, 340);
-						ptWrite({ dx: 0, dy: 0 });
-					});
-					header.addEventListener("pointerdown", (ev) => {
-						if (ev.button !== 0) return;
-						if (ev.target.closest(PT_HIT) !== null) return;
-						ev.preventDefault();
-						const cur = ptRead();
-						const baseX = ptNum(cur.dx) ?? 0;
-						const baseY = ptNum(cur.dy) ?? 0;
-						const startX = ev.clientX;
-						const startY = ev.clientY;
-						try {
-							header.setPointerCapture(ev.pointerId);
-						} catch (_ignored) {
-							/* noop */
-						}
-						const move = (e) => {
-							panel.style.transform = ptTransform(baseX + (e.clientX - startX), baseY + (e.clientY - startY));
-						};
-						const up = () => {
-							header.removeEventListener("pointermove", move);
-							header.removeEventListener("pointerup", up);
-							header.removeEventListener("pointercancel", up);
-							const m = /translate3d\((-?[\d.]+)px,\s*(-?[\d.]+)px/.exec(panel.style.transform || "");
-							ptWrite({ dx: m ? Math.round(Number(m[1])) : 0, dy: m ? Math.round(Number(m[2])) : 0 });
-						};
-						header.addEventListener("pointermove", move);
-						header.addEventListener("pointerup", up);
-						header.addEventListener("pointercancel", up);
-					});
-				}
+					const cur = ptRead();
+					const baseX = ptNum(cur.dx) ?? 0;
+					const baseY = ptNum(cur.dy) ?? 0;
+					const startX = ev.clientX;
+					const startY = ev.clientY;
+					const move = (e) => {
+						panel.style.transform = ptTransform(baseX + (e.clientX - startX), baseY + (e.clientY - startY));
+					};
+					const up = () => {
+						panel.removeEventListener("pointermove", move);
+						panel.removeEventListener("pointerup", up);
+						panel.removeEventListener("pointercancel", up);
+						const m = /translate3d\((-?[\d.]+)px,\s*(-?[\d.]+)px/.exec(panel.style.transform || "");
+						ptWrite({ dx: m ? Math.round(Number(m[1])) : 0, dy: m ? Math.round(Number(m[2])) : 0 });
+					};
+					panel.addEventListener("pointermove", move);
+					panel.addEventListener("pointerup", up);
+					panel.addEventListener("pointercancel", up);
+				});
 
 				// ③ 四边 + 四角缩放；默认比宿主大一整圈
 				const PT_DEF_W = "min(1080px, calc(100vw - 64px))";
