@@ -5,3 +5,4 @@ test/debug-*.mjs
 .DS_Store
 Thumbs.db
 test/frames/
+test/video/
