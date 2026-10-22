@@ -580,10 +580,12 @@ window.__ModuleLoader__.load({
 				".dsg-chip:hover{background:var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.12));color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-chip:active{transform:scale(.97)}",
 				".dsg-chip[aria-current=\"true\"]{color:var(--dsw-alias-label-primary,#333)}",
-				// 小三角带一点回弹转过去，比线性旋转更像"抽屉被拉开"
-				".dsg-caret{flex:none;display:inline-flex;align-items:center;justify-content:center;width:10px;height:10px;opacity:.75;transition:transform .3s cubic-bezier(.34,1.56,.64,1)}",
-				".dsg-caret::before{content:\"\";display:block;width:0;height:0;border-left:4px solid currentColor;border-top:3.5px solid transparent;border-bottom:3.5px solid transparent}",
-				".dsg-chip[aria-expanded=\"true\"] .dsg-caret{transform:rotate(90deg)}",
+				// 小三角：细线 chevron（`>` 形状），展开时转成 `v`。
+				// 用两条边框拼 L 形再转 -45°，比实心三角轻，跟宿主自己的展开箭头同一种观感。
+				".dsg-caret{flex:none;display:inline-flex;align-items:center;justify-content:center;width:11px;height:11px;opacity:.7;transform-origin:50% 50%;transition:transform .34s cubic-bezier(.34,1.7,.5,1),opacity .22s ease}",
+				".dsg-caret::before{content:\"\";display:block;width:4.5px;height:4.5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;border-radius:.5px;transform:rotate(-45deg);margin:0 0 0 -1px}",
+				".dsg-chip:hover .dsg-caret{opacity:.95}",
+				".dsg-chip[aria-expanded=\"true\"] .dsg-caret{transform:rotate(90deg) scale(1.15);opacity:1}",
 				".dsg-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;letter-spacing:.01em}",
 				".dsg-count{flex:none;height:15px;line-height:15px;padding:0 5px;border-radius:999px;background:rgba(127,127,127,.14);color:inherit;font-size:10px;opacity:.85}",
 				".dsg-grip{flex:none;font-size:10px;opacity:0;cursor:grab;transition:opacity .15s ease}",

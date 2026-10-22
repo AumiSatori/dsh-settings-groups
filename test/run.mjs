@@ -196,6 +196,31 @@ const clickAndPeekAnim = (chipName, itemLabel) => page.evaluate(({ chipName, ite
 	return { anim: btn?.dataset.dsgAnim ?? '', display: btn?.style.display ?? '' }
 }, { chipName, itemLabel })
 
+// 小三角自己也得转、得有过渡（只转 4px 的实心三角肉眼看不出来，要配 scale）
+const caretStates = await page.evaluate(async () => {
+	const chip = [...document.querySelectorAll('.dsg-chip')].find((c) => c.children[1].textContent === '界面增强')
+	const caret = chip.querySelector('.dsg-caret')
+	const read = () => ({
+		transform: getComputedStyle(caret).transform,
+		opacity: getComputedStyle(caret).opacity,
+		transition: getComputedStyle(caret).transitionProperty,
+	})
+	const expanded = read()
+	chip.click()
+	// 点击后立刻读到的还是过渡的起始值，要等它跑完
+	await new Promise((r) => setTimeout(r, 420))
+	return { expanded, collapsed: read() }
+})
+check('小三角有 transform 过渡', caretStates.expanded.transition.includes('transform'), caretStates.expanded.transition)
+check('展开态小三角转且放大', caretStates.expanded.transform !== 'none' && !caretStates.expanded.transform.startsWith('matrix(1, 0, 0, 1'), caretStates.expanded.transform)
+check('收起态小三角回到原位', caretStates.collapsed.transform === 'none' || caretStates.collapsed.transform.startsWith('matrix(1, 0, 0, 1'), caretStates.collapsed.transform)
+await page.waitForTimeout(400)
+// 点回展开，别影响后面的断言
+await page.evaluate(() => {
+	[...document.querySelectorAll('.dsg-chip')].find((c) => c.children[1].textContent === '界面增强').click()
+})
+await page.waitForTimeout(400)
+
 const collapsePeek = await clickAndPeekAnim('界面增强', 'Claude 美化')
 await page.waitForTimeout(360)
 check('收起时播过渡动画', collapsePeek.anim === 'out', `data-dsg-anim=${collapsePeek.anim || '(空)'}`)
