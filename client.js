@@ -29,7 +29,9 @@ window.__ModuleLoader__.load({
 		 * 宿主官方入口：固定平铺在最上面，不参与分组、不参与排序。
 		 * 拖这些入口没有语义（它们不是插件贡献），也避免把「账号与余额」藏进分组。
 		 */
-		const CORE_IDS = new Set(["general", "models", "plugins", "agent-presets", "account", MANAGE_ID]);
+		// 宿主自带的设置页 —— 它们不是插件贡献，所以固定在顶部、不参与分组。
+// 「分组管理」不在里面：它是本插件自己的页面，用户想把它丢进哪个组都行。
+		const CORE_IDS = new Set(["general", "models", "plugins", "agent-presets", "account"]);
 		/** 需要注入的客户端服务。 */
 		const inject = ["slots", "locale"];
 		/** 过渡时长（与 CSS 的 .26s 对齐）。 */

@@ -638,6 +638,30 @@ check('下拉浮层是圆角不是方角', pickerMenu !== null && pickerMenu.rad
 await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
 await page.waitForTimeout(120)
 
+// ---- 9.7d1 「分组管理」是插件自己的页面，应该能归组 ----
+await dragItemToChip('分组管理', '开发工具')
+await page.waitForTimeout(400)
+const manageInGroup = await page.evaluate(() => {
+	const raw = JSON.parse(localStorage.getItem('dsh.settingsGroups.v1') ?? '{}')
+	const g = (raw.groups ?? []).find((x) => x.name === '开发工具')
+	return g === undefined ? null : (g.entries ?? []).includes('settings-groups-manage')
+})
+check('分组管理可以进组', manageInGroup === true, String(manageInGroup))
+// 拖回去，别影响后面的断言
+await page.evaluate(() => {
+	const src = [...document.querySelectorAll('.nav-item')].find((b) => b.textContent.trim() === '分组管理')
+	const dst = [...document.querySelectorAll('.dsg-chip')].find((c) => c.children[1].textContent === '未分组')
+	if (src === undefined || dst === undefined) return
+	const r = dst.getBoundingClientRect()
+	const dt = new DataTransfer()
+	const fire = (el, t) => el.dispatchEvent(new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.top + 6 }))
+	fire(src, 'dragstart')
+	fire(dst, 'dragover')
+	fire(dst, 'drop')
+	fire(src, 'dragend')
+})
+await page.waitForTimeout(300)
+
 // ---- 9.7d2 删除分组要就地确认 ----
 // 用一个临时分组来删，别动后面测试要用的「界面增强」
 await page.locator('.dsg-input').first().fill('待删测试')
