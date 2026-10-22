@@ -585,6 +585,20 @@ const symmetric = await page.evaluate(() => {
 check('左右留白对称且不贴边', Math.abs(symmetric.left - symmetric.right) <= 1 && symmetric.left > 0, JSON.stringify(symmetric))
 check('搜索框比列表窄', symmetric.boxW < symmetric.listW, `${symmetric.boxW} < ${symmetric.listW}`)
 
+// 宿主的设置面板是纯黑白灰，搜索框不能自带一股蓝
+const searchColors = await page.evaluate(() => {
+	const row = document.querySelector('.dsg-search-row')
+	const input = document.querySelector('.dsg-search-input')
+	input.focus()
+	const cs = getComputedStyle(row)
+	const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cs.borderTopColor) ?? []
+	const gray = m.length === 4 && Math.abs(Number(m[1]) - Number(m[2])) <= 2 && Math.abs(Number(m[2]) - Number(m[3])) <= 2
+	return { border: cs.borderTopColor, background: cs.backgroundColor, gray }
+})
+check('聚焦时边框仍是中性灰', searchColors.gray, JSON.stringify(searchColors))
+check('聚焦时底色不染色', searchColors.background === 'rgba(0, 0, 0, 0)' || searchColors.background === 'transparent', searchColors.background)
+await page.evaluate(() => document.querySelector('.dsg-search-input').blur())
+
 const hitOne = await typeSearch('语音')
 check('搜索只剩命中项', hitOne.length === 1 && hitOne[0] === '语音朗读', hitOne.join(' / '))
 
@@ -626,12 +640,12 @@ const chipsAfterExternal = await page.evaluate(() => [...document.querySelectorA
 check('外部改文件后自动跟上', chipsAfterExternal.includes('AI 配的组'), chipsAfterExternal.join(' / '))
 
 // ---- 10. 总开关关闭 = 完全恢复原生 ----
+// 先把磁盘清空：上一轮测试往里写过 enabled:true，留着会让轮询有得可读
+await page.evaluate(() => fetch('/__reset'))
 await page.evaluate(() => {
 	const sw = document.querySelector('.dsg-switch')
 	if (sw !== null) sw.click()
 })
-// 要等过「写盘节流 250ms + 一次轮询」：否则轮询可能读到上一轮测试写进磁盘的旧配置，
-// 把刚关掉的开关又覆盖回 true（表现为偶发的 "还有 chip 残留"）
 await page.waitForTimeout(900)
 const nativeState = await page.evaluate(() => ({
 	chips: document.querySelectorAll('.dsg-chip').length,

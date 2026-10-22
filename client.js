@@ -380,7 +380,10 @@ window.__ModuleLoader__.load({
 			 * 判断依据是**内容**而不是 updatedAt —— 手写的配置通常不会带这个字段。
 			 */
 			const pullFromHost = async (force = false) => {
-				if (pendingPush && !force) return;
+				// 节流期（pushTimer 还没到点）也算「本地有未落盘的改动」。
+				// 只判断 pendingPush 会留一个 250ms 的空窗：这期间磁盘还是旧值，
+				// 轮询一读就把用户刚做的操作覆盖回去了。
+				if ((pendingPush || pushTimer !== null) && !force) return;
 				let raw = null;
 				try {
 					const res = await fetch(`${API_BASE}/config`, { cache: "no-store" });
@@ -594,11 +597,13 @@ window.__ModuleLoader__.load({
 				// 早先是灰底方块，贴着顶边、还比下面的图标靠左，看着像误入的外来控件。
 				".dsg-search{display:flex;flex-direction:column;gap:2px;box-sizing:border-box;width:auto;margin:8px 6px}",
 				".dsg-search-row{display:flex;align-items:center;gap:7px;box-sizing:border-box;height:30px;padding:0 11px;border-radius:8px;border:1px solid rgba(127,127,127,.2);background:transparent;transition:border-color .16s ease,background .16s ease}",
+				// 全程只用中性灰：宿主的设置面板是纯黑白灰，插一个蓝色强调框进去
+				// 立刻显得像外挂控件。聚焦只把边框和图标压深一档，不换色也不加底色。
 				".dsg-search-row:hover{border-color:rgba(127,127,127,.34)}",
-				".dsg-search-row:focus-within{border-color:var(--dsw-alias-state-info-primary,#4a7cf5);background:color-mix(in srgb, var(--dsw-alias-state-info-primary,#4a7cf5) 5%, transparent)}",
-				".dsg-search-icon{flex:none;opacity:.55;transition:opacity .16s ease,color .16s ease}",
+				".dsg-search-row:focus-within{border-color:rgba(127,127,127,.52)}",
+				".dsg-search-icon{flex:none;opacity:.55;transition:opacity .16s ease}",
 				".dsg-search-row:hover .dsg-search-icon{opacity:.75}",
-				".dsg-search-row:focus-within .dsg-search-icon{opacity:1;color:var(--dsw-alias-state-info-primary,#4a7cf5)}",
+				".dsg-search-row:focus-within .dsg-search-icon{opacity:.92}",
 				".dsg-search-empty{padding:2px 2px 0;font-size:11.5px;line-height:18px;color:var(--dsw-alias-label-secondary,#999)}",
 				".dsg-search-input{flex:1;min-width:0;border:none;background:transparent;color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:12.5px;line-height:28px;outline:none;padding:0}",
 				".dsg-search-input::placeholder{color:var(--dsw-alias-label-tertiary,#aaa)}",
