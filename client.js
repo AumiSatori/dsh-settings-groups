@@ -621,8 +621,11 @@ window.__ModuleLoader__.load({
 				// box-sizing:border-box 下 height:0 也压不平 —— 上下 padding 会顶住，
 				// 宿主的按钮若还有 min-height，更是直接卡在几十像素。
 				// 所以 padding 也要进 keyframes，min-height 在动画期间强制归零。
-				"@keyframes dsgItemIn{from{height:0;padding-top:0;padding-bottom:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}to{height:var(--dsg-h,40px);padding-top:var(--dsg-pt,0px);padding-bottom:var(--dsg-pb,0px);opacity:1;filter:blur(0);transform:none}}",
-				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);padding-top:var(--dsg-pt,0px);padding-bottom:var(--dsg-pb,0px);opacity:1;filter:blur(0);transform:none}to{height:0;padding-top:0;padding-bottom:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}}",
+				// ⚠️ padding **不要**放进 keyframes。padding 每帧都会重算布局，和 height 叠加
+				// 之后整条动画明显发涩（实测主人反馈"收回下拉都卡"）。改成动画前一次性归零，
+				// 只让 height 走动画 —— 塌得干净，也不拖帧。
+				"@keyframes dsgItemIn{from{height:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}to{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}}",
+				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}to{height:0;opacity:0;filter:blur(4px);transform:scale(.86) translateY(-6px)}}",
 				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important}",
 				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important}",
 				// —— 管理页 ——
@@ -1163,8 +1166,6 @@ window.__ModuleLoader__.load({
 				btn.style.transitionTimingFunction = "";
 				btn.style.animationDelay = "";
 				btn.style.removeProperty("--dsg-h");
-				btn.style.removeProperty("--dsg-pt");
-				btn.style.removeProperty("--dsg-pb");
 				btn.style.minHeight = "";
 				delete btn.dataset.dsgAnim;
 			};
@@ -1180,14 +1181,11 @@ window.__ModuleLoader__.load({
 					btn.style.display = "";
 					resetItemStyles(btn);
 					const rect = btn.getBoundingClientRect();
-					const cs = getComputedStyle(btn);
-					// getComputedStyle 是活对象，改 style 前先把 padding 快照下来
-					const pt = cs.paddingTop;
-					const pb = cs.paddingBottom;
 					const natural = Math.max(1, rect.height);
 					btn.style.setProperty("--dsg-h", `${Math.round(natural)}px`);
-					btn.style.setProperty("--dsg-pt", pt);
-					btn.style.setProperty("--dsg-pb", pb);
+					// padding 一次性归零（不进动画，见 CSS 注释），否则 height:0 压不平
+					btn.style.paddingTop = "0px";
+					btn.style.paddingBottom = "0px";
 					btn.style.animationDelay = `${delay}ms`;
 					// 同一个 animation 想重播，得先摘掉再挂回去，中间强制一次回流
 					delete btn.dataset.dsgAnim;
@@ -1214,13 +1212,11 @@ window.__ModuleLoader__.load({
 				list.forEach((btn, i) => {
 					const delay = Math.min(i * 10, 70);
 					const rect = btn.getBoundingClientRect();
-					const cs = getComputedStyle(btn);
-					const pt = cs.paddingTop;
-					const pb = cs.paddingBottom;
 					const h = Math.max(1, rect.height);
 					btn.style.setProperty("--dsg-h", `${Math.round(h)}px`);
-					btn.style.setProperty("--dsg-pt", pt);
-					btn.style.setProperty("--dsg-pb", pb);
+					// 同上：只归零一次，不参与逐帧插值
+					btn.style.paddingTop = "0px";
+					btn.style.paddingBottom = "0px";
 					btn.style.animationDelay = `${delay}ms`;
 					delete btn.dataset.dsgAnim;
 					void btn.offsetWidth;
@@ -2053,7 +2049,7 @@ window.__ModuleLoader__.load({
 				// 出：宿主直接把 dialog 卸掉，我们来不及在它身上播动画。
 				// 所以移除瞬间留一张同尺寸快照在原地淡出，人眼看就是面板在退场。
 				"@keyframes dsgPanelOut{from{opacity:1;scale:1}to{opacity:0;scale:.965}}",
-				"[data-dsg-ghost=\"1\"]{animation:dsgPanelOut .22s cubic-bezier(.4,0,.9,.4) forwards}",
+				"[data-dsg-ghost=\"1\"]{animation:dsgPanelOut .26s cubic-bezier(.4,0,.9,.4) forwards}",
 				// ⚠️ 这里**不要**常驻 `will-change:transform`。
 				// 常驻会让设置面板整个生命周期都待在 GPU 合成层上，合成层里的文字
 				// 不走 subpixel antialiasing（LCD 次像素渲染），只剩灰度抗锯齿 ——
@@ -2118,11 +2114,11 @@ window.__ModuleLoader__.load({
 					st.pointerEvents = "none";
 					st.zIndex = "2147483000";
 					// inline 指定，别跟 CSS 特异性较劲
-					st.animation = "dsgPanelOut .22s cubic-bezier(.4,0,.9,.4) forwards";
+					st.animation = "dsgPanelOut .26s cubic-bezier(.4,0,.9,.4) forwards";
 					document.body.appendChild(ghost);
 					const kill = () => ghost.remove();
 					ghost.addEventListener("animationend", kill);
-					setTimeout(kill, 500); // 双保险：animationend 万一没来
+					setTimeout(kill, 600); // 双保险：animationend 万一没来
 				} catch (_ignored) {
 					/* 克隆失败就让它直接消失，不影响关闭本身 */
 				}
@@ -2389,10 +2385,18 @@ window.__ModuleLoader__.load({
 			let ptQueued = false;
 			const ptObserver = new MutationObserver((mutations) => {
 				// 先看有没有面板被摘掉 —— 这一步必须在扫描新 panel 之前，
-				// 否则 ptLastRect 会被下一次的布局覆盖成 null
+				// 否则 ptLastRect 会被下一次的布局覆盖成 null。
+				// 注意不能只比 matches：宿主很可能把 dialog 包在一层 overlay 里整个摘掉，
+				// 那时被移除的节点是 overlay，dialog 只是它的后代。
 				for (const m of mutations) {
 					for (const node of m.removedNodes) {
-						if (node instanceof Element && node.matches?.(PT_SEL)) ptGhostOut(node);
+						if (!(node instanceof Element)) continue;
+						if (node.matches?.(PT_SEL)) {
+							ptGhostOut(node);
+							continue;
+						}
+						const inner = node.querySelector?.(PT_SEL);
+						if (inner !== null && inner !== undefined) ptGhostOut(inner);
 					}
 				}
 				if (ptQueued) return;
@@ -2404,6 +2408,12 @@ window.__ModuleLoader__.load({
 						try {
 							ptDecorate(panel);
 							ptLastRect = panel.getBoundingClientRect();
+							// 刚挂载那一帧常常还没布局完（rect 全 0），退场时会因为尺寸判据被跳过。
+							// 等入场动画跑完再补测一次，之后拖动结束也会更新。
+							setTimeout(() => {
+								const live = document.querySelector(PT_SEL);
+								if (live !== null) ptLastRect = live.getBoundingClientRect();
+							}, 300);
 						} catch (error) {
 							console.warn("[dsh-settings-groups] panel tweak failed", error);
 						}

@@ -695,13 +695,37 @@ check('关闭时留了一张快照', ghostState.exists === true, JSON.stringify(
 check('快照在原地淡出且不吃点击', ghostState.position === 'fixed' && ghostState.animation.includes('dsgPanelOut') && ghostState.pointerEvents === 'none', JSON.stringify(ghostState))
 check('快照出现时真面板已消失', ghostState.origin === true, String(ghostState.origin))
 
-await page.waitForTimeout(600)
+await page.waitForTimeout(700)
 check('快照会自毁', (await page.evaluate(() => document.querySelector('[data-dsg-ghost="1"]') === null)))
+
 
 // 重新打开，别把后面晾在关闭状态
 await page.evaluate(() => document.getElementById('btn-open').click())
 await page.waitForTimeout(500)
 check('重新打开后面板回来', (await page.locator('[role="dialog"][aria-modal="true"]').count()) >= 1)
+
+// overlay 场景：宿主可能把 dialog 包在一层容器里整个摘掉，被移除的是容器
+const wrapped = await page.evaluate(async () => {
+	const dialog = document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]:not([data-dsg-ghost])')
+	if (dialog === null) return 'no-dialog'
+	const parent = dialog.parentNode
+	const next = dialog.nextSibling
+	const wrapper = document.createElement('div')
+	parent.insertBefore(wrapper, dialog)
+	wrapper.appendChild(dialog)
+	await new Promise((r) => setTimeout(r, 80))
+	wrapper.remove()
+	// 插件这会儿应该已经抓到"dialog 被容器带走了"。
+	// 但 React 并不知道我们把节点挪过，直接不管会导致它卸载时 removeChild 报错 —— 放回原处。
+	parent.insertBefore(dialog, next)
+	await new Promise((r) => setTimeout(r, 80))
+	return document.querySelector('[data-dsg-ghost="1"]') !== null
+})
+check('overlay 整体移除也能触发退场', wrapped === true, String(wrapped))
+await page.waitForTimeout(800)
+// 再打开一次，后面的迁移测试还要用
+await page.evaluate(() => document.getElementById('btn-open').click())
+await page.waitForTimeout(500)
 
 // ---- 12. 旧插件配置迁移（省得重新配一遍）----
 await page.evaluate(async () => {
