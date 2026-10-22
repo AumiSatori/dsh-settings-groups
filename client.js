@@ -1405,9 +1405,9 @@ window.__ModuleLoader__.load({
 					}
 				}
 				const loose = looseIds();
-				// 没建过分组时不需要「未分组」这个标签：条目本来就全都平铺着。
-				// 一旦有了分组，即使未分组为空也要留着 —— 它是「把条目移出分组」的投放目标。
-				if (state.groups.length > 0) {
+				// 未分组里没有东西就不显示这一行 —— 光秃秃一个「未分组 (0)」只是碍眼。
+				// 代价是少了「拖出分组」的投放目标，但管理页每条都有「移出」按钮兜底。
+				if (state.groups.length > 0 && loose.length > 0) {
 					seq.push(ensureLooseChip());
 				} else if (looseChip !== null && looseChip.parentNode !== null) {
 					looseChip.remove();
@@ -2237,8 +2237,11 @@ window.__ModuleLoader__.load({
 			const ptGhostOut = (node) => {
 				const rect = ptLastRect;
 				if (rect === null || rect.width < 80 || rect.height < 80) return;
-				// 一次关闭只留一张，别被多条 mutation 重复克隆
-				if (document.querySelector('[data-dsg-ghost="1"]') !== null) return;
+				// 同一个节点只处理一次（多条 mutation 会重复报同一个移除）。
+				// 不能用「页面上已有 ghost 就跳过」—— 上一次的 ghost 还没自毁完时，
+				// 会把下一次关闭的退场一起挡掉。
+				if (node.dataset.dsgGhosted === "1") return;
+				node.dataset.dsgGhosted = "1";
 				try {
 					const ghost = node.cloneNode(true);
 					// 去掉 id，避免和随后重建的真实面板撞车
