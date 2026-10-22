@@ -978,6 +978,8 @@ window.__ModuleLoader__.load({
 				let grabY = 0;
 				let lastKey = "\u0000";
 				let dragging = false;
+				/** 拖动前这个分组是不是展开的 —— 松手要还原回去。 */
+				let wasOpen = false;
 
 				const cleanup = () => {
 					if (timer !== 0) {
@@ -987,6 +989,14 @@ window.__ModuleLoader__.load({
 					if (ghost !== null) {
 						ghost.remove();
 						ghost = null;
+					}
+					if (wasOpen) {
+						wasOpen = false;
+						const g = groupById(gid);
+						if (g !== undefined) {
+							g.open = true;
+							sync();
+						}
 					}
 					el.style.opacity = "";
 					document.body.style.cursor = "";
@@ -1070,6 +1080,14 @@ window.__ModuleLoader__.load({
 					timer = setTimeout(() => {
 						timer = 0;
 						dragging = true;
+						// 抓起来的那个分组先合上：展开着的话它是"标签 + 一整排条目"，
+						// 拿在手里太臃肿，也让落点判断更乱。松手再还原。
+						const dragged = groupById(gid);
+						if (dragged !== undefined && dragged.open !== false) {
+							wasOpen = true;
+							dragged.open = false;
+							sync();
+						}
 						const rect = el.getBoundingClientRect();
 						grabX = startX - rect.left;
 						grabY = startY - rect.top;
