@@ -730,6 +730,8 @@ window.__ModuleLoader__.load({
 				// 强调色走宿主变量，深色主题自动跟着换。
 				".dsg-page{--dsg-accent:var(--dsw-alias-state-info-primary,#5b5bf6);display:flex;flex-direction:column;gap:18px;box-sizing:border-box;width:100%;max-width:100%;min-width:0;font-size:14px}",
 				".dsg-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:2px 2px 8px}",
+				".dsg-hero-left{display:flex;align-items:flex-start;gap:12px;min-width:0}",
+				".dsg-hero-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:11px;background:color-mix(in srgb, var(--dsg-accent,#5b5bf6) 11%, transparent);color:var(--dsg-accent,#5b5bf6)}",
 				".dsg-hero-title{margin:0;font-size:21px;line-height:28px;font-weight:700;letter-spacing:-.01em;color:var(--dsw-alias-label-primary,#1f1f22)}",
 				".dsg-hero-sub{margin:5px 0 0;font-size:13.5px;line-height:20px;color:var(--dsw-alias-label-secondary,#8a8a8a)}",
 				".dsg-hero-tag{flex:none;margin-top:6px;font-size:13px;line-height:18px;font-weight:600;color:var(--dsg-accent)}",
@@ -748,18 +750,19 @@ window.__ModuleLoader__.load({
 				".dsg-cardhead{display:flex;align-items:center;gap:8px;min-width:0}",
 				".dsg-cardname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-cardcount{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary,#999)}",
-				// 按钮默认**透明底**。之前每个按钮都带一块灰底，鼠标移到行内按钮上时
-				// 那块灰底盖住了行的 hover 背景，看着就是「背景闪一下就没了」。
-				".dsg-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 9px;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary,#8a8a8a);font-family:inherit;font-size:12.5px;line-height:1;cursor:pointer;transition:background .14s ease,color .14s ease,transform .1s ease}",
-				".dsg-btn:hover{background:rgba(127,127,127,.12);color:var(--dsw-alias-label-primary,#333)}",
-				".dsg-btn:active{transform:scale(.96)}",
-				".dsg-btn[disabled]{opacity:.32;cursor:default;background:transparent;color:var(--dsw-alias-label-secondary,#8a8a8a)}",
+				// 按钮默认**透明底**，hover 也**不加底** —— 只把图标/文字压深。
+				// 之前按钮自己叠一层灰底，压在行的灰底上，那块颜色永远比周围深一档，
+				// 看着就是「悬浮样式不对」。删除是唯一例外（悬浮翻红底，那是反色强调）。
+				".dsg-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 9px;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-tertiary,#9a9a9a);font-family:inherit;font-size:12.5px;line-height:1;cursor:pointer;transition:color .14s ease,transform .1s ease}",
+				".dsg-btn:hover{background:transparent;color:var(--dsw-alias-label-primary,#333)}",
+				".dsg-btn:active{transform:scale(.94)}",
+				".dsg-btn[disabled]{opacity:.28;cursor:default;background:transparent;color:var(--dsw-alias-label-tertiary,#9a9a9a)}",
 				// 纯图标按钮：正方形，图标靠字符，圆角 7px（不要方角）
 				".dsg-icon{width:26px;padding:0;font-size:13px}",
-				".dsg-btn-ghost{background:transparent;color:var(--dsw-alias-label-secondary,#999)}",
-				".dsg-btn-ghost:hover{background:rgba(127,127,127,.12);color:var(--dsw-alias-label-primary,#333)}",
+				".dsg-btn-ghost{background:transparent;color:var(--dsw-alias-label-tertiary,#9a9a9a)}",
+				".dsg-btn-ghost:hover{background:transparent;color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-danger{color:var(--dsw-alias-state-error-primary,#e5484d)}",
-				// 删除：平时白底红字，悬浮翻成红底白字（主人明确要这个反色）
+				// 删除：平时红图标，悬浮翻成红底白字（主人明确要这个反色）
 				".dsg-danger:hover,.dsg-btn.dsg-danger:hover{background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff}",
 				".dsg-rows{display:flex;flex-direction:column;gap:2px}",
 				".dsg-row{display:flex;align-items:center;gap:8px;min-height:34px;padding:4px 8px;border-radius:7px;color:var(--dsw-alias-label-primary,#333);transition:background .12s ease,opacity .12s ease}",
@@ -1947,6 +1950,18 @@ window.__ModuleLoader__.load({
 				const ICON_PENCIL_TIP = "M9.8 4.2l2 2";
 				const ICON_TRASH = "M3.5 5h9M6.5 5V3.2h3V5M5 5l.5 8h5L11 5";
 				const ICON_TRASH_LINES = "M7 7.5v3.5M9 7.5v3.5";
+				/** 插件标记：三条长短不一的横线（分组列表）+ 一个指向右的折角（展开）。 */
+				const LOGO_MARK = h("svg", {
+					viewBox: "0 0 20 20",
+					width: 18,
+					height: 18,
+					"aria-hidden": "true",
+					style: { display: "block" },
+				},
+				h("path", { d: "M2.5 5.5h9M2.5 10h6M2.5 14.5h11", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" }),
+				h("path", { d: "M15 7.5 17.5 10 15 12.5", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" }),
+				);
+
 				const ICON_EXIT = "M9.5 3H12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9.5";
 				const ICON_EXIT_ARROW = "M8.5 8H2.5M5.5 5.5 2.5 8l3 2.5";
 
@@ -2181,11 +2196,14 @@ window.__ModuleLoader__.load({
 				};
 
 				return h("div", { className: "dsg-page" },
-					// 主标题区：大标题 + 副标题 + 右上角标签（跟 Claude 美化那页同一套骨架）
+					// 主标题区：图标 + 大标题 + 副标题 + 右上角标签
 					h("div", { className: "dsg-hero" },
-						h("div", null,
-							h("div", { className: "dsg-hero-title" }, tPage("heroTitle")),
-							h("p", { className: "dsg-hero-sub" }, tPage("heroSub")),
+						h("div", { className: "dsg-hero-left" },
+							h("span", { className: "dsg-hero-mark" }, LOGO_MARK),
+							h("div", { style: { minWidth: 0 } },
+								h("div", { className: "dsg-hero-title" }, tPage("heroTitle")),
+								h("p", { className: "dsg-hero-sub" }, tPage("heroSub")),
+							),
 						),
 						h("span", { className: "dsg-hero-tag" }, tPage("heroTag")),
 					),
