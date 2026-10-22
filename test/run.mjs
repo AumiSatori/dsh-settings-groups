@@ -126,7 +126,7 @@ const initial = await visibleNav()
 check('无分组时不注入 chip', (await page.locator('.dsg-chip').count()) === 0)
 check('无分组时全部条目可见', initial.filter((x) => !x.startsWith('[chip')).length === 13, `实际 ${initial.length} 项`)
 check('核心项排在最前', initial[0] === '账号与余额' && initial[1] === '通用设置', initial.slice(0, 3).join(' / '))
-check('管理页入口已注册', initial.includes('分组管理'), initial.join(' / '))
+check('管理页入口已注册', initial.includes('设置管理'), initial.join(' / '))
 
 // ---- 3. 新建分组（走管理页真实输入框）----
 const input = page.locator('.dsg-input').first()
@@ -701,18 +701,18 @@ const headHold = await page.evaluate(async () => {
 })
 check('长按卡片头会浮起整组', headHold === true, String(headHold))
 
-// ---- 9.7d1 「分组管理」是插件自己的页面，应该能归组 ----
-await dragItemToChip('分组管理', '开发工具')
+// ---- 9.7d1 「设置管理」是插件自己的页面，应该能归组 ----
+await dragItemToChip('设置管理', '开发工具')
 await page.waitForTimeout(400)
 const manageInGroup = await page.evaluate(() => {
 	const raw = JSON.parse(localStorage.getItem('dsh.settingsGroups.v1') ?? '{}')
 	const g = (raw.groups ?? []).find((x) => x.name === '开发工具')
 	return g === undefined ? null : (g.entries ?? []).includes('settings-groups-manage')
 })
-check('分组管理可以进组', manageInGroup === true, String(manageInGroup))
+check('设置管理可以进组', manageInGroup === true, String(manageInGroup))
 // 拖回去，别影响后面的断言
 await page.evaluate(() => {
-	const src = [...document.querySelectorAll('.nav-item')].find((b) => b.textContent.trim() === '分组管理')
+	const src = [...document.querySelectorAll('.nav-item')].find((b) => b.textContent.trim() === '设置管理')
 	const dst = [...document.querySelectorAll('.dsg-chip')].find((c) => c.children[1].textContent === '未分组')
 	if (src === undefined || dst === undefined) return
 	const r = dst.getBoundingClientRect()
@@ -1657,6 +1657,103 @@ await interactionPage.waitForTimeout(30)
 await interactionPage.evaluate(() => { for (const fn of window.__effectCleanups) if (typeof fn === 'function') fn() })
 check('停用插件立即清理新动效的退出副本', await interactionPage.locator('[data-dsg-motion-layer]').count() === 0)
 await interactionContext.close()
+
+// ---- 18. 设置管理命名与持久化的全部动效总开关 ----
+const motionContext = await browser.newContext({ viewport: { width: 1300, height: 1200 } })
+const motionPage = await motionContext.newPage()
+motionPage.on('pageerror', (error) => errors.push(String(error)))
+await page.evaluate(() => fetch('/__reset'))
+await motionPage.addInitScript(() => {
+	if (sessionStorage.getItem('motion-seeded')) return
+	sessionStorage.setItem('motion-seeded', '1')
+	// 旧配置没有 animations 字段，升级后仍默认开启动效。
+	localStorage.setItem('dsh.settingsGroups.v1', JSON.stringify({ v: 1, enabled: true, updatedAt: Date.now(), groups: [
+		{ id: 'mt', name: '动效测试', entries: ['dsh-commandcode', 'dsh-read-aloud'], open: true },
+	], loose: [], hidden: [] }))
+})
+await motionPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' })
+await motionPage.waitForTimeout(600)
+check('入口和页面标题统一为设置管理', await motionPage.locator('nav [data-dsg-id="settings-groups-manage"]').innerText() === '设置管理' && await motionPage.locator('.dsg-hero-title').innerText() === '设置管理')
+const motionToggle = () => motionPage.getByRole('switch', { name: '启用动效', exact: true })
+check('旧配置升级后默认开启动效且两个开关独立', await motionToggle().getAttribute('aria-checked') === 'true' && await motionPage.getByRole('switch', { name: '启用分组', exact: true }).count() === 1)
+await motionPage.evaluate(() => {
+	document.querySelector('nav .dsg-chip[data-dsg-gid="mt"]').click()
+	document.querySelector('[data-dsg-pin="account"] [title="下移"]').click()
+})
+await motionPage.waitForTimeout(55)
+check('关闭总开关前确实有展开或补位动画', await motionPage.evaluate(() => document.querySelector('[data-dsg-anim]') !== null || document.getAnimations().some((a) => a.id === 'dsg-page-reorder')))
+await motionToggle().evaluate((el) => el.click())
+await motionPage.waitForTimeout(40)
+const settledOff = await motionPage.evaluate(() => ({ mode: document.documentElement.dataset.dsgMotion,
+	markers: document.querySelectorAll('[data-dsg-anim],[data-dsg-motion-layer],[data-dsg-ghost]').length,
+	motions: document.getAnimations().filter((a) => a.id.startsWith('dsg-') || a.animationName?.startsWith('dsg')).map((a) => a.id || a.animationName),
+	hidden: ['dsh-commandcode', 'dsh-read-aloud'].every((id) => document.querySelector(`nav [data-section="${id}"]`).style.display === 'none'),
+}))
+check('关闭总开关把当前动画落到最终状态并清理副本', settledOff.mode === 'off' && settledOff.markers === 0 && settledOff.motions.length === 0 && settledOff.hidden, JSON.stringify(settledOff))
+const immediateExpand = await motionPage.evaluate(() => {
+	document.querySelector('nav .dsg-chip[data-dsg-gid="mt"]').click()
+	const row = document.querySelector('nav [data-section="dsh-commandcode"]')
+	return { display: row.style.display, marker: row.dataset.dsgAnim, transition: getComputedStyle(document.querySelector('.dsg-caret')).transitionDuration }
+})
+check('动效关闭时分组展开和箭头立即完成', immediateExpand.display !== 'none' && immediateExpand.marker === undefined && immediateExpand.transition === '0s', JSON.stringify(immediateExpand))
+await motionPage.locator('nav [data-section="models"]').evaluate((el) => el.click())
+await motionPage.waitForTimeout(45)
+const noSwitch = await motionPage.evaluate(() => {
+	const list = document.querySelector('[data-dsg-switch-track]'), cs = getComputedStyle(list, '::before')
+	return { marker: !!document.querySelector('[data-dsg-page]'), transition: cs.transitionDuration,
+		y: new DOMMatrixReadOnly(cs.transform).m42, target: parseFloat(list.style.getPropertyValue('--dsg-switch-y')) }
+})
+check('动效关闭时功能选中块和正文直接切换', !noSwitch.marker && noSwitch.transition === '0s' && Math.abs(noSwitch.y - noSwitch.target) < 1, JSON.stringify(noSwitch))
+await motionPage.locator('.dsg-search-input').fill('表情')
+await motionPage.waitForTimeout(35)
+check('动效关闭时搜索不产生退出画面或补位动画', await motionPage.locator('[data-dsg-motion-layer]').count() === 0 && await motionPage.evaluate(() => !document.getAnimations().some((a) => a.id === 'dsg-search-reorder')))
+await motionPage.locator('.dsg-search-input').fill('')
+const offEntry = motionPage.locator('.dsg-page [data-dsg-entry="dsh-meme"]')
+await offEntry.locator('.dsg-picker-btn').evaluate((el) => el.click())
+await motionPage.waitForTimeout(20)
+await motionPage.keyboard.press('Escape')
+await motionPage.waitForTimeout(20)
+check('动效关闭时下拉菜单立即关闭', await motionPage.locator('.dsg-picker-menu').count() === 0)
+await offEntry.locator('.dsg-hide').evaluate((el) => el.click())
+await motionPage.waitForTimeout(35)
+check('动效关闭时隐藏操作立即完成且不播放高亮', await motionPage.locator('.dsg-page [data-dsg-hidden="dsh-meme"]').evaluate((el) => el.getAnimations().length === 0) && await motionPage.locator('[data-dsg-motion-layer]').count() === 0)
+await motionPage.locator('[data-dsg-pin="account"] [title="上移"]').evaluate((el) => el.click())
+await motionPage.waitForTimeout(30)
+check('动效关闭时上下移动仍可用且没有补位动画', await motionPage.locator('.dsg-page [data-dsg-pin]').first().getAttribute('data-dsg-pin') === 'account' && await motionPage.evaluate(() => !document.getAnimations().some((a) => a.id === 'dsg-page-reorder')))
+await motionPage.locator('.dsh-ptweak-split').dispatchEvent('dblclick')
+check('动效关闭时面板复位不播放尺寸过渡', await motionPage.locator('[data-shortcut-modal="settings"] > nav').evaluate((el) => getComputedStyle(el).transitionDuration === '0s'))
+await motionPage.waitForTimeout(350)
+const savedMotion = await motionPage.evaluate(async () => ({ local: JSON.parse(localStorage.getItem('dsh.settingsGroups.v1')).animations, disk: (await (await fetch('/api/dsh-settings-groups/config')).json()).config.animations }))
+check('总开关双写到缓存与宿主配置', savedMotion.local === false && savedMotion.disk === false, JSON.stringify(savedMotion))
+await motionPage.evaluate(() => document.getElementById('btn-open').click())
+await motionPage.waitForTimeout(35)
+check('动效关闭时设置立即关闭且无退场快照', await motionPage.locator('[data-dsg-ghost]').count() === 0 && await motionPage.locator('[data-shortcut-modal="settings"]').count() === 0)
+await motionPage.evaluate(() => document.getElementById('btn-open').click())
+await motionPage.waitForTimeout(45)
+check('重开设置时总开关仍关闭且没有入场动画', await motionToggle().getAttribute('aria-checked') === 'false' && await motionPage.locator('[data-shortcut-modal="settings"]').evaluate((el) => getComputedStyle(el).animationName === 'none'))
+await motionPage.reload({ waitUntil: 'load' })
+await motionPage.waitForTimeout(500)
+check('刷新后保持关闭动效', await motionToggle().getAttribute('aria-checked') === 'false' && await motionPage.evaluate(() => document.documentElement.dataset.dsgMotion === 'off'))
+await motionPage.evaluate(() => localStorage.clear())
+await motionPage.reload({ waitUntil: 'load' })
+await motionPage.waitForTimeout(600)
+check('清空缓存后能从宿主配置恢复动效偏好', await motionToggle().getAttribute('aria-checked') === 'false')
+await motionPage.getByRole('switch', { name: '启用分组', exact: true }).evaluate((el) => el.click())
+await motionToggle().evaluate((el) => el.click())
+await motionPage.waitForTimeout(40)
+check('动效开关不改变分组功能开关', await motionPage.getByRole('switch', { name: '启用分组', exact: true }).getAttribute('aria-checked') === 'false' && await motionToggle().getAttribute('aria-checked') === 'true')
+await motionPage.locator('nav [data-section="models"]').evaluate((el) => el.click())
+await motionPage.waitForTimeout(50)
+check('重新开启动效后切页动画恢复', await motionPage.locator('#content').evaluate((el) => el.getAnimations().some((a) => a.animationName === 'dsgPageIn')))
+await motionPage.emulateMedia({ reducedMotion: 'reduce' })
+await motionPage.waitForFunction(() => document.documentElement.dataset.dsgMotion === 'off')
+check('总开关开启时仍遵守系统减少动态效果', await motionToggle().getAttribute('aria-checked') === 'true' && await motionPage.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches))
+await motionPage.emulateMedia({ reducedMotion: 'no-preference' })
+await motionPage.waitForFunction(() => document.documentElement.dataset.dsgMotion === 'on')
+check('系统恢复动效后自动恢复用户已开启的偏好', await motionPage.evaluate(() => document.documentElement.dataset.dsgMotion === 'on'))
+await motionPage.evaluate(() => { for (const fn of window.__effectCleanups) if (typeof fn === 'function') fn() })
+check('停用插件后清除动效开关的全局标记和样式', await motionPage.locator('style[data-dsg-motion-style]').count() === 0 && await motionPage.evaluate(() => !document.documentElement.hasAttribute('data-dsg-motion')))
+await motionContext.close()
 
 check('全程无 JS 报错', errors.length === 0, errors.slice(0, 3).join(' | '))
 

@@ -30,7 +30,7 @@ window.__ModuleLoader__.load({
 		 * 拖这些入口没有语义（它们不是插件贡献），也避免把「账号与余额」藏进分组。
 		 */
 		// 宿主自带的设置页 —— 它们不是插件贡献，所以固定在顶部、不参与分组。
-// 「分组管理」不在里面：它是本插件自己的页面，用户想把它丢进哪个组都行。
+// 「设置管理」不在里面：它是本插件自己的页面，用户想把它丢进哪个组都行。
 		const CORE_IDS = new Set(["general", "models", "plugins", "agent-presets", "account"]);
 		/** 需要注入的客户端服务。 */
 		const inject = ["slots", "locale"];
@@ -57,8 +57,8 @@ window.__ModuleLoader__.load({
 
 			// ---------------------------------------------------------------- 文案
 			ctx.effect(() => ctx.locale.register(NS, "zh", {
-				label: "分组管理",
-				heroTitle: "设置分组",
+				label: "设置管理",
+				heroTitle: "设置管理",
 				heroSub: "把宿主的设置入口收进分组：排序、隐藏、在分组与未分组之间随意派发。",
 				heroTag: "Layered",
 				badgeOn: "已开启",
@@ -68,9 +68,11 @@ window.__ModuleLoader__.load({
 				expand: "展开",
 				collapse: "收起",
 				dragHint: "拖动可排序 / 拖进分组",
-				pageTitle: "分组管理",
+				pageTitle: "设置管理",
 				enabled: "启用分组",
 				enabledDesc: "关闭后设置导航完全恢复宿主原生平铺，配置仍然保留。",
+				animations: "启用动效",
+				animationsDesc: "一键开关设置管理提供的全部动效；关闭后操作立即完成，偏好会自动保存。",
 				newGroup: "新建分组",
 				newGroupPlaceholder: "分组名称，例如「界面增强」",
 				create: "新建",
@@ -129,8 +131,8 @@ window.__ModuleLoader__.load({
 			}), "settings-groups: zh dictionary");
 
 			ctx.effect(() => ctx.locale.register(NS, "en", {
-				label: "Groups",
-				heroTitle: "Settings groups",
+				label: "Settings management",
+				heroTitle: "Settings management",
 				heroSub: "Collect the host's settings entries into groups: reorder, hide, and move them between groups and the ungrouped bucket.",
 				heroTag: "Layered",
 				badgeOn: "On",
@@ -140,9 +142,11 @@ window.__ModuleLoader__.load({
 				expand: "Expand",
 				collapse: "Collapse",
 				dragHint: "Drag to reorder / drop into a group",
-				pageTitle: "Settings groups",
+				pageTitle: "Settings management",
 				enabled: "Enable groups",
 				enabledDesc: "When off, the settings nav returns to the host's flat list; your configuration is kept.",
+				animations: "Enable animations",
+				animationsDesc: "Control all animations provided by Settings management. When off, actions finish immediately. Your preference is saved.",
 				newGroup: "New group",
 				newGroupPlaceholder: "Group name, e.g. “UI enhancements”",
 				create: "Create",
@@ -215,13 +219,14 @@ window.__ModuleLoader__.load({
 			 * folded 默认 false：装这个插件就是为了把条目拖来拖去，一进来就全收起来
 			 * 等于把可拖的东西藏了。想省地方再自己点那一行收起。
 			 */
-			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, folded: false, groups: [], loose: [], hidden: [], coreExtra: [], coreOrder: [], topOrder: [] });
+			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, animations: true, folded: false, groups: [], loose: [], hidden: [], coreExtra: [], coreOrder: [], topOrder: [] });
 
 			const sanitize = (raw) => {
 				const next = defaults();
 				if (raw === null || typeof raw !== "object") return next;
 				if (Number.isFinite(raw.updatedAt)) next.updatedAt = Number(raw.updatedAt);
 				if (typeof raw.enabled === "boolean") next.enabled = raw.enabled;
+				if (typeof raw.animations === "boolean") next.animations = raw.animations;
 				if (typeof raw.folded === "boolean") next.folded = raw.folded;
 				if (Array.isArray(raw.coreExtra)) next.coreExtra = raw.coreExtra.filter((x) => typeof x === "string");
 				if (Array.isArray(raw.coreOrder)) next.coreOrder = raw.coreOrder.filter((x) => typeof x === "string");
@@ -384,6 +389,7 @@ window.__ModuleLoader__.load({
 
 			const applyRemote = (remote) => {
 				state = remote;
+				applyMotionPreference();
 				dedupe();
 				recalcNextGroupId();
 				try {
@@ -422,6 +428,7 @@ window.__ModuleLoader__.load({
 			};
 
 			const save = () => {
+				applyMotionPreference();
 				state.updatedAt = Date.now();
 				try {
 					localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -433,9 +440,31 @@ window.__ModuleLoader__.load({
 
 			// 短动效统一跟随系统偏好；停用或关闭页面时撤掉动画和只用于退场的画面。
 			const uiMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+			const motionAllowed = () => state.animations && !uiMedia.matches;
+			let settleMotion = () => {};
+			function applyMotionPreference() {
+				const mode = motionAllowed() ? "on" : "off";
+				if (document.documentElement.dataset.dsgMotion === mode) return;
+				document.documentElement.dataset.dsgMotion = mode;
+				if (mode === "off") settleMotion();
+			}
+			ctx.effect(() => {
+				// 范围只覆盖插件的界面和设置面板过渡，保持其他页面的行为。
+				const off = 'html[data-dsg-motion="off"]';
+				const panel = '[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]';
+				const targets = [panel, `${panel} > nav`, `${panel} > nav *`, `${panel} > nav *::before`, `${panel} > nav *::after`,
+					"[data-dsg-page]", ".dsg-page", ".dsg-page *", ".dsg-page *::before", ".dsg-page *::after", ".dsh-ptweak-split::after", ".dsh-ptweak-header", ".dsh-ptweak-rz", "[data-dsg-floating]", "[data-dsg-row-floating]"];
+				const style = document.createElement("style");
+				style.dataset.dsgMotionStyle = "1";
+				style.textContent = `${targets.map((selector) => `${off} ${selector}`).join(",")} {animation:none !important;transition:none !important}`;
+				document.head.appendChild(style);
+				applyMotionPreference();
+				uiMedia.addEventListener("change", applyMotionPreference);
+				return () => { uiMedia.removeEventListener("change", applyMotionPreference); style.remove(); delete document.documentElement.dataset.dsgMotion; };
+			}, "settings-groups: animation preference");
 			const uiMotions = new Set(), uiLayers = new Set();
 			const uiAnimate = (el, frames, options) => {
-				if (uiMedia.matches || !el?.isConnected) return null;
+				if (!motionAllowed() || !el?.isConnected) return null;
 				try {
 					const motion = el.animate(frames, { duration: 200, easing: "cubic-bezier(.2,.7,.3,1)", ...options });
 					uiMotions.add(motion);
@@ -451,14 +480,8 @@ window.__ModuleLoader__.load({
 				const prune = () => { for (const layer of [...uiLayers]) if (!layer.owner.isConnected) layer.kill(); };
 				const watch = new MutationObserver(prune);
 				watch.observe(document.body, { childList: true, subtree: true });
-				const reduce = () => {
-					if (!uiMedia.matches) return;
-					for (const motion of uiMotions) { try { motion.finish(); } catch (_ignored) { motion.cancel(); } }
-					for (const layer of [...uiLayers]) layer.kill();
-				};
-				uiMedia.addEventListener("change", reduce);
 				return () => {
-					watch.disconnect(); uiMedia.removeEventListener("change", reduce);
+					watch.disconnect();
 					for (const motion of uiMotions) motion.cancel();
 					uiMotions.clear();
 					for (const layer of [...uiLayers]) layer.kill();
@@ -514,7 +537,7 @@ window.__ModuleLoader__.load({
 				return scene;
 			};
 			const playScene = (before, after, { reorder = true, highlight = false } = {}) => {
-				if (uiMedia.matches || !after.root.isConnected) return;
+				if (!motionAllowed() || !after.root.isConnected) return;
 				for (const layer of [...uiLayers]) if (layer.owner === after.root) layer.kill();
 				const gone = [];
 				for (const [key, item] of before.items) {
@@ -1086,7 +1109,7 @@ window.__ModuleLoader__.load({
 				const nav = findNavList();
 				if (nav === null) return;
 				const q = searchQuery.trim().toLowerCase();
-				const before = searchQueries.has(nav) && searchQueries.get(nav) !== q ? captureScene(nav, ":scope > button") : null;
+				const before = motionAllowed() && searchQueries.has(nav) && searchQueries.get(nav) !== q ? captureScene(nav, ":scope > button") : null;
 				searchQueries.set(nav, q);
 				if (before) for (const motion of uiMotions) if (nav.contains(motion.effect?.target) && ["dsg-search-reorder", "dsg-scene-enter"].includes(motion.id)) motion.cancel();
 				const finish = () => { if (before) playScene(before, captureScene(nav, ":scope > button")); };
@@ -2121,6 +2144,7 @@ window.__ModuleLoader__.load({
 			 * 不动元素自身的 transform（那个归显隐动画用），播完自动清理。
 			 */
 			const flipRects = (before) => {
+				if (!motionAllowed()) return;
 				for (const [el, oldRect] of before) {
 					if (!el.isConnected) continue;
 					// 正在播显隐动画的别抢它的 transform
@@ -2130,7 +2154,7 @@ window.__ModuleLoader__.load({
 					const dy = oldRect.top - newRect.top;
 					if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
 					try {
-						el.animate(
+						uiAnimate(el,
 							[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
 							{ duration: 300, easing: "cubic-bezier(.2,.7,.3,1)" },
 						);
@@ -2223,6 +2247,7 @@ window.__ModuleLoader__.load({
 						btn.style.display = direction === "out" ? "none" : "";
 						resetItemStyles(btn);
 					};
+					job.finish = finish;
 					job.end = (event) => {
 						if (event.target === btn && event.animationName === (direction === "in" ? "dsgItemIn" : "dsgItemOut")) finish();
 					};
@@ -2233,6 +2258,7 @@ window.__ModuleLoader__.load({
 			};
 
 			const applyVisibility = (animate) => {
+				animate = animate && motionAllowed();
 				const enter = [];
 				const leave = [];
 				for (const r of rows) {
@@ -2562,7 +2588,7 @@ window.__ModuleLoader__.load({
 					if (!el.isConnected) continue;
 					for (const motion of el.getAnimations()) if (motion.id === "dsg-page-reorder") motion.cancel();
 				}
-				if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+				if (!motionAllowed()) return;
 				const moves = new Map();
 				for (const [el, oldRect] of before) {
 					if (!el.isConnected) continue;
@@ -2576,7 +2602,7 @@ window.__ModuleLoader__.load({
 					const dx = delta.dx - (parent?.dx ?? 0), dy = delta.dy - (parent?.dy ?? 0);
 					if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
 					try {
-						el.animate(
+						uiAnimate(el,
 							[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
 							{ id: "dsg-page-reorder", duration: 280, easing: "cubic-bezier(.2,.7,.3,1)" },
 						);
@@ -2757,7 +2783,7 @@ window.__ModuleLoader__.load({
 				};
 
 				const commit = (msg) => {
-					if (pageRef.current && !uiMedia.matches) {
+					if (pageRef.current && motionAllowed()) {
 						sceneBefore.current ??= captureScene(pageRef.current, ".dsg-card,.dsg-row", sceneKey);
 						flipPage(snapshotPage());
 					}
@@ -3135,11 +3161,29 @@ window.__ModuleLoader__.load({
 								h("button", {
 									type: "button",
 									className: "dsg-switch",
+									role: "switch",
+									"aria-label": tPage("enabled"),
+									"aria-checked": state.enabled,
+									"data-dsg-control": "groups",
 									"data-on": state.enabled ? "1" : "0",
 									onClick: () => {
 										state.enabled = !state.enabled;
 										commit();
 									},
+								}, h("span", { className: "dsg-knob" })),
+							),
+						),
+						h("div", { className: "dsg-subcard" },
+							h("div", { className: "dsg-toggle" },
+								h("div", { className: "dsg-toggletext" },
+									h("span", { className: "dsg-toggletitle" }, tPage("animations")),
+									h("span", { className: "dsg-hint" }, tPage("animationsDesc")),
+								),
+								h("button", {
+									type: "button", className: "dsg-switch", role: "switch",
+									"aria-label": tPage("animations"), "aria-checked": state.animations,
+									"data-dsg-control": "animations", "data-on": state.animations ? "1" : "0",
+									onClick: () => { state.animations = !state.animations; commit(); },
 								}, h("span", { className: "dsg-knob" })),
 							),
 						),
@@ -3313,6 +3357,7 @@ window.__ModuleLoader__.load({
 								state.hidden = fresh.hidden;
 								state.folded = fresh.folded;
 								state.enabled = fresh.enabled;
+								state.animations = fresh.animations;
 								commit(tPage("resetDone"));
 							},
 						}, tPage("reset")),
@@ -3508,7 +3553,7 @@ window.__ModuleLoader__.load({
 			/** 真正卸载后冻结一份静态画面，整块同步淡出；重新打开时立即清掉旧快照。 */
 			const ptGhostOut = (node) => {
 				if (node.isConnected || document.querySelector(PT_SEL) !== null) return;
-				if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+				if (!motionAllowed()) return;
 				const frame = ptFrame?.panel === node ? ptFrame : null;
 				const rect = frame?.rect ?? ptLastRect;
 				if (!rect || rect.width < 80 || rect.height < 80 || node.dataset.dsgGhosted === "1") return;
@@ -3633,7 +3678,7 @@ window.__ModuleLoader__.load({
 				job.watch = new MutationObserver((mutations) => {
 					if (!mutations.some((m) => m.type === "childList" || m.target !== list || m.attributeName !== "style")) return;
 					// 高度动画会改变后面条目的位置，短暂逐帧对齐；平时没有轮询。
-					job.followUntil = performance.now() + (ptSwitchMedia.matches ? 0 : 300);
+						job.followUntil = performance.now() + (motionAllowed() ? 300 : 0);
 					job.schedule();
 				});
 				job.watch.observe(list, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-current", "aria-expanded", "data-dsg-anim", "data-dsg-search", "data-dsg-hit", "data-dsg-dragging", "style", "class"] });
@@ -3653,6 +3698,7 @@ window.__ModuleLoader__.load({
 				const content = ptContentOf(panel);
 				if (content === null) return;
 				content.removeAttribute("data-dsg-page");
+				if (!motionAllowed()) return;
 				void content.offsetWidth;
 				content.setAttribute("data-dsg-page", "in");
 			};
@@ -3693,7 +3739,7 @@ window.__ModuleLoader__.load({
 				split.addEventListener("dblclick", (ev) => {
 					ev.preventDefault();
 					// 复位要滑回去，不能瞬移（拖动过程中不加过渡，那是跟手）
-					nav.style.transition = "width .28s cubic-bezier(.2,.7,.3,1)";
+					nav.style.transition = motionAllowed() ? "width .28s cubic-bezier(.2,.7,.3,1)" : "";
 					nav.style.width = "";
 					setTimeout(() => {
 						nav.style.transition = "";
@@ -3743,7 +3789,7 @@ window.__ModuleLoader__.load({
 					const header = headerOf(panel);
 					if (header === null || !header.contains(ev.target)) return;
 					if (ev.target.closest(PT_HIT) !== null) return;
-					panel.style.transition = "transform .3s cubic-bezier(.2,.7,.3,1)";
+					panel.style.transition = motionAllowed() ? "transform .3s cubic-bezier(.2,.7,.3,1)" : "";
 					panel.style.transform = "";
 					setTimeout(() => {
 						panel.style.transition = "";
@@ -3803,7 +3849,7 @@ window.__ModuleLoader__.load({
 				fitPanel();
 
 				const resetBox = () => {
-					panel.style.transition = "width .3s cubic-bezier(.2,.7,.3,1), height .3s cubic-bezier(.2,.7,.3,1)";
+					panel.style.transition = motionAllowed() ? "width .3s cubic-bezier(.2,.7,.3,1), height .3s cubic-bezier(.2,.7,.3,1)" : "";
 					panel.style.width = PT_DEF_W;
 					panel.style.height = PT_DEF_H;
 					setTimeout(() => {
@@ -4006,6 +4052,16 @@ window.__ModuleLoader__.load({
 					}
 				};
 			}, "settings-groups: panel tweak");
+
+			// 所有动效共用一个策略；关闭途中立即落到最终状态，不把内容留在半透明/半收起。
+			settleMotion = () => {
+				for (const job of [...itemAnimations.values()]) job.finish();
+				for (const motion of [...uiMotions]) { try { motion.finish(); } catch (_ignored) { motion.cancel(); } }
+				for (const layer of [...uiLayers]) layer.kill();
+				for (const kill of [...ptGhosts.values()]) kill();
+				for (const content of document.querySelectorAll("[data-dsg-page]")) content.removeAttribute("data-dsg-page");
+				ptSwitch?.schedule();
+			};
 
 			// 首帧：设置面板可能还没挂载，观察器会补上
 			refreshRows();

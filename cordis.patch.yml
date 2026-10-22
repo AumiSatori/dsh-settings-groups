@@ -1,4 +1,4 @@
-# dsh-settings-groups：设置导航分组（纯客户端插件）。
+# dsh-settings-groups：设置管理（客户端界面 + 宿主配置落盘）。
 #
 # name 必须是实际包名 —— cordis 按 name import 插件，写错会 Cannot find package。
 - insert:
