@@ -83,6 +83,9 @@ window.__ModuleLoader__.load({
 				remove: "移出",
 				removeGroup: "删除分组",
 				removeGroupHint: "删除分组后，组内条目回到「未分组」，条目本身不受影响。",
+				confirmDelete: "删除「{name}」？组内条目会回到未分组。",
+				delCancel: "取消",
+				delConfirm: "删除",
 				up: "上移",
 				down: "下移",
 				save: "保存",
@@ -151,6 +154,9 @@ window.__ModuleLoader__.load({
 				remove: "Remove",
 				removeGroup: "Delete group",
 				removeGroupHint: "Deleting a group returns its entries to “Ungrouped”; entries themselves are untouched.",
+				confirmDelete: "Delete “{name}”? Its entries go back to Ungrouped.",
+				delCancel: "Cancel",
+				delConfirm: "Delete",
 				up: "Move up",
 				down: "Move down",
 				save: "Save",
@@ -749,7 +755,13 @@ window.__ModuleLoader__.load({
 				// 卡片之间单独拉开：只影响"卡→卡"，别把"标题→第一张卡"也一起推远
 				".dsg-section > .dsg-card{margin-bottom:10px}",
 				".dsg-section > .dsg-card:last-child{margin-bottom:0}",
-				".dsg-cardhead{display:flex;align-items:center;gap:8px;min-width:0}",
+				".dsg-cardhead{position:relative;display:flex;align-items:center;gap:8px;min-width:0}",
+				// 删除确认气泡：挂在卡片头下方，就地询问，不弹系统 confirm
+				".dsg-confirm{position:absolute;right:0;top:calc(100% + 10px);z-index:6;width:238px;padding:13px 15px;border-radius:12px;border:1px solid rgba(127,127,127,.16);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 14px 36px -10px rgba(0,0,0,.24);animation:dsgMenuIn .14s cubic-bezier(.2,.7,.3,1)}",
+				".dsg-confirm-text{margin:0 0 11px;font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-primary,#333)}",
+				".dsg-confirm-actions{display:flex;gap:8px;justify-content:flex-end}",
+				".dsg-confirm-danger{background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff}",
+				".dsg-confirm-danger:hover{background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff;opacity:.88}",
 				".dsg-cardname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-cardcount{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary,#999)}",
 				// 按钮默认**透明底**，hover 也**不加底** —— 只把图标/文字压深。
@@ -2070,6 +2082,7 @@ window.__ModuleLoader__.load({
 				const [renameText, setRenameText] = React.useState("");
 				const [dragId, setDragId] = React.useState(null); // 被拖的条目（渲染用）
 				const [dragGid, setDragGid] = React.useState(null); // 被拖的分组卡片（渲染用）
+				const [confirmGid, setConfirmGid] = React.useState(null); // 正在等确认删除的分组
 				// setState 是异步的：dragstart 与 drop 若在同一 tick 里连发，
 				// 事件处理里读 state 还是旧值 —— 真正判落点要用这两个 ref。
 				const dragIdRef = React.useRef(null);
@@ -2460,11 +2473,73 @@ window.__ModuleLoader__.load({
 									type: "button",
 									className: "dsg-btn dsg-icon dsg-danger",
 									title: tPage("removeGroupHint"),
-									onClick: () => {
-										removeGroup(g.id);
-										commit();
-									},
+									onClick: () => setConfirmGid((cur) => (cur === g.id ? null : g.id)),
 								}, iconEl(ICON_TRASH, ICON_TRASH_LINES)),
+								// 就地确认：气泡挂在卡片头下方，不弹系统 confirm
+								confirmGid === g.id
+									? h("div", { className: "dsg-confirm" },
+										h("p", { className: "dsg-confirm-text" }, tPage("confirmDelete").replace("{name}", g.name)),
+										h("div", { className: "dsg-confirm-actions" },
+											h("button", {
+												type: "button",
+												className: "dsg-btn",
+												onClick: () => setConfirmGid(null),
+											}, tPage("delCancel")),
+											h("button", {
+												type: "button",
+												className: "dsg-btn dsg-confirm-danger",
+												onClick: () => {
+													// 先把卡片淡出，再真正删掉；删完让下面的滑上来
+													const cardEl = [...document.querySelectorAll(".dsg-page .dsg-card")]
+														.find((c) => c.querySelector(".dsg-cardname")?.textContent === g.name);
+													const before = new Map();
+													for (const card of document.querySelectorAll(".dsg-page .dsg-card")) {
+														if (card.querySelector(".dsg-cardname") === null) continue;
+														before.set(card, card.getBoundingClientRect());
+													}
+													const finish = () => {
+														before.delete(cardEl);
+														removeGroup(g.id);
+														setConfirmGid(null);
+														commit();
+														requestAnimationFrame(() => {
+															requestAnimationFrame(() => {
+																for (const [card, oldRect] of before) {
+																	if (!card.isConnected) continue;
+																	const now = card.getBoundingClientRect();
+																	const dx = oldRect.left - now.left;
+																	const dy = oldRect.top - now.top;
+																	if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+																	try {
+																		card.animate(
+																			[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
+																			{ duration: 260, easing: "cubic-bezier(.2,.7,.3,1)" },
+																		);
+																	} catch (_ignored) {
+																		/* noop */
+																	}
+																}
+															});
+														});
+													};
+													if (cardEl === undefined) {
+														finish();
+														return;
+													}
+													try {
+														const anim = cardEl.animate(
+															[{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.96)" }],
+															{ duration: 170, easing: "ease-in", fill: "forwards" },
+														);
+														anim.finished.then(finish).catch(finish);
+													} catch (_ignored) {
+														finish();
+													}
+												},
+											}, tPage("delConfirm")),
+										),
+									)
+									: null,
 							),
 					),
 					items.length === 0

@@ -606,6 +606,42 @@ check('下拉浮层是圆角不是方角', pickerMenu !== null && pickerMenu.rad
 await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
 await page.waitForTimeout(120)
 
+// ---- 9.7d2 删除分组要就地确认 ----
+// 用一个临时分组来删，别动后面测试要用的「界面增强」
+await page.locator('.dsg-input').first().fill('待删测试')
+await page.locator('.dsg-input').first().press('Enter')
+await page.waitForTimeout(300)
+
+const delFlow = await page.evaluate(async () => {
+	const cardOf = (n) => [...document.querySelectorAll('.dsg-page .dsg-card')]
+		.find((c) => c.querySelector('.dsg-cardname')?.textContent === n)
+	const card = cardOf('待删测试')
+	if (card === undefined) return 'no-card'
+	card.querySelector('.dsg-danger')?.click()
+	await new Promise((r) => setTimeout(r, 200))
+	const popped = document.querySelector('.dsg-confirm') !== null
+	// 取消
+	const cancelBtn = [...(document.querySelector('.dsg-confirm')?.querySelectorAll('button') ?? [])].find((b) => b.textContent === '取消')
+	cancelBtn?.click()
+	await new Promise((r) => setTimeout(r, 250))
+	const stayed = cardOf('待删测试') !== undefined && document.querySelector('.dsg-confirm') === null
+	return { popped, stayed }
+})
+check('点删除弹出确认气泡', delFlow.popped === true, JSON.stringify(delFlow))
+check('取消后什么都不变', delFlow.stayed === true, JSON.stringify(delFlow))
+
+const reallyDelete = await page.evaluate(async () => {
+	const cardOf = (n) => [...document.querySelectorAll('.dsg-page .dsg-card')]
+		.find((c) => c.querySelector('.dsg-cardname')?.textContent === n)
+	cardOf('待删测试')?.querySelector('.dsg-danger')?.click()
+	await new Promise((r) => setTimeout(r, 200))
+	const ok = [...(document.querySelector('.dsg-confirm')?.querySelectorAll('button') ?? [])].find((b) => b.textContent === '删除')
+	ok?.click()
+	await new Promise((r) => setTimeout(r, 600))
+	return cardOf('待删测试') === undefined
+})
+check('确认后分组真的没了', reallyDelete === true, String(reallyDelete))
+
 // ---- 9.7e 管理页的整张卡片也能拖 ----
 // 卡片也是「长按浮起 + pointer」，不是 HTML5 DnD
 const cardDrag = await page.evaluate(async () => {
