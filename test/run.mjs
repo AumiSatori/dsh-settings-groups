@@ -138,6 +138,13 @@ check('新建分组后导航出现 chip', (await page.locator('.dsg-chip').count
 const chipLabels = await page.evaluate(() =>
 	[...document.querySelectorAll('.dsg-chip')].map((c) => c.children[1].textContent))
 check('分组 chip 文案正确', chipLabels.includes('界面增强'), chipLabels.join(','))
+
+// 分类名要加粗。500 在微软雅黑上等同 Regular（这字体只有 400/700 两档），得写 700
+const nameWeight = await page.evaluate(() => {
+	const name = document.querySelector('.dsg-chip .dsg-name')
+	return { weight: getComputedStyle(name).fontWeight, family: getComputedStyle(name).fontFamily }
+})
+check('分类名是粗体', Number(nameWeight.weight) >= 700, JSON.stringify(nameWeight))
 check('chip 高度小于官方条目', await page.evaluate(() => {
 	const chip = document.querySelector('.dsg-chip')
 	const item = document.querySelector('.nav-item')
