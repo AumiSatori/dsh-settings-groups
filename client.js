@@ -760,7 +760,7 @@ window.__ModuleLoader__.load({
 				".dsg-btn:active{transform:scale(.94)}",
 				".dsg-btn[disabled]{opacity:.28;cursor:default;background:transparent;color:var(--dsw-alias-label-tertiary,#9a9a9a)}",
 				// 纯图标按钮：正方形，图标靠字符，圆角 7px（不要方角）
-				".dsg-icon{width:26px;padding:0;font-size:13px}",
+				".dsg-icon{width:28px;height:28px;padding:0;font-size:13px}",
 				".dsg-btn-ghost{background:transparent;color:var(--dsw-alias-label-tertiary,#9a9a9a)}",
 				".dsg-btn-ghost:hover{background:transparent;color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-danger{color:var(--dsw-alias-state-error-primary,#e5484d)}",
@@ -1196,9 +1196,35 @@ window.__ModuleLoader__.load({
 					if (key === lastKey) return;
 					lastKey = key;
 					if (hit === null) return;
+					// 先记位置，重排之后做 FLIP —— 不然卡片是「啪」地跳到新位置，
+					// 跟左边导航里那种"滑开让位"完全两种手感。
+					const before = new Map();
+					for (const card of document.querySelectorAll(".dsg-page .dsg-card")) {
+						if (card === el) continue;
+						if (card.querySelector(".dsg-cardname") === null) continue;
+						before.set(card, card.getBoundingClientRect());
+					}
 					moveGroupTo(gid, hit);
-					// 让 React 自己重渲染：顺序变了，卡片会重新排
 					notifyPage();
+					requestAnimationFrame(() => {
+						requestAnimationFrame(() => {
+							for (const [card, oldRect] of before) {
+								if (!card.isConnected) continue;
+								const now = card.getBoundingClientRect();
+								const dx = oldRect.left - now.left;
+								const dy = oldRect.top - now.top;
+								if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+								try {
+									card.animate(
+										[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
+										{ duration: 280, easing: "cubic-bezier(.2,.7,.3,1)" },
+									);
+								} catch (_ignored) {
+									/* 不支持 WAAPI 就直接跳 */
+								}
+							}
+						});
+					});
 				};
 
 				const onUp = () => cleanup();
@@ -2158,7 +2184,7 @@ window.__ModuleLoader__.load({
 						moveEntry(gid, id, -1);
 						commit();
 					},
-				}, "↑"),
+				}, iconEl(ICON_UP, undefined, 2)),
 				h("button", {
 					type: "button",
 					className: "dsg-btn dsg-btn-ghost",
@@ -2167,7 +2193,7 @@ window.__ModuleLoader__.load({
 						moveEntry(gid, id, 1);
 						commit();
 					},
-				}, "↓"),
+				}, iconEl(ICON_DOWN, undefined, 2)),
 				gid === undefined
 					? h(GroupPicker, {
 						groups,
@@ -2190,23 +2216,23 @@ window.__ModuleLoader__.load({
 				// 隐藏：从导航里彻底拿掉，但配置留着，随时能从「已隐藏」放回来
 				h("button", {
 					type: "button",
-					className: "dsg-btn dsg-btn-ghost",
+					className: "dsg-btn dsg-icon dsg-hide",
 					title: tPage("hideHint"),
 					onClick: () => {
 						hideEntry(id);
 						commit(tPage("hiddenDone"));
 					},
-				}, "⊘"),
+				}, iconEl(ICON_HIDE, ICON_HIDE_SLASH)),
 				);
 
 				/**
 				 * 细线图标。字符版（✎ ↺ ✕）笔画太细，在小字号下糊成一团；
 				 * 用 SVG 才能跟放大镜保持同一条线宽。
 				 */
-				const iconEl = (d, extra) => h("svg", {
+				const iconEl = (d, extra, weight = 1.6) => h("svg", {
 					viewBox: "0 0 16 16",
-					width: 13,
-					height: 13,
+					width: 15,
+					height: 15,
 					"aria-hidden": "true",
 					style: { display: "block", flex: "none" },
 				},
@@ -2214,7 +2240,7 @@ window.__ModuleLoader__.load({
 					d,
 					fill: "none",
 					stroke: "currentColor",
-					strokeWidth: 1.5,
+					strokeWidth: weight,
 					strokeLinecap: "round",
 					strokeLinejoin: "round",
 				}),
@@ -2222,7 +2248,7 @@ window.__ModuleLoader__.load({
 					d: extra,
 					fill: "none",
 					stroke: "currentColor",
-					strokeWidth: 1.5,
+					strokeWidth: weight,
 					strokeLinecap: "round",
 					strokeLinejoin: "round",
 				}),
@@ -2244,6 +2270,10 @@ window.__ModuleLoader__.load({
 				h("path", { d: "M15 7.5 17.5 10 15 12.5", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" }),
 				);
 
+				const ICON_HIDE = "M2.2 8s2.2-3.9 5.8-3.9S13.8 8 13.8 8s-2.2 3.9-5.8 3.9S2.2 8 2.2 8z";
+				const ICON_HIDE_SLASH = "M3 13 13 3";
+				const ICON_UP = "M8 12.5V3.5M8 3.5 4.2 7.3M8 3.5l3.8 3.8";
+				const ICON_DOWN = "M8 3.5v9M8 12.5 4.2 8.7M8 12.5l3.8-3.8";
 				const ICON_EXIT = "M9.5 3H12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9.5";
 				const ICON_EXIT_ARROW = "M8.5 8H2.5M5.5 5.5 2.5 8l3 2.5";
 
@@ -2310,7 +2340,7 @@ window.__ModuleLoader__.load({
 							moveCore(id, -1);
 							commit();
 						},
-					}, "↑"),
+					}, iconEl(ICON_UP, undefined, 2)),
 					h("button", {
 						type: "button",
 						className: "dsg-btn dsg-btn-ghost",
@@ -2320,16 +2350,16 @@ window.__ModuleLoader__.load({
 							moveCore(id, 1);
 							commit();
 						},
-					}, "↓"),
+					}, iconEl(ICON_DOWN, undefined, 2)),
 					h("button", {
 						type: "button",
-						className: "dsg-btn dsg-btn-ghost",
+						className: "dsg-btn dsg-icon dsg-hide",
 						title: tPage("hideHint"),
 						onClick: () => {
 							hideEntry(id);
 							commit(tPage("hiddenDone"));
 						},
-					}, "⊘"),
+					}, iconEl(ICON_HIDE, ICON_HIDE_SLASH)),
 				);
 
 				const groupCard = (g, index) => {
@@ -2406,7 +2436,7 @@ window.__ModuleLoader__.load({
 										moveGroup(g.id, -1);
 										commit();
 									},
-								}, "↑"),
+								}, iconEl(ICON_UP, undefined, 2)),
 								h("button", {
 									type: "button",
 									className: "dsg-btn dsg-btn-ghost",
@@ -2416,7 +2446,7 @@ window.__ModuleLoader__.load({
 										moveGroup(g.id, 1);
 										commit();
 									},
-								}, "↓"),
+								}, iconEl(ICON_DOWN, undefined, 2)),
 								h("button", {
 									type: "button",
 									className: "dsg-btn dsg-icon",

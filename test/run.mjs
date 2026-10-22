@@ -435,7 +435,8 @@ const clickRowButton = (label, text) => page.evaluate(({ label, text }) => {
 	const row = [...document.querySelectorAll('.dsg-row')]
 		.find((r) => r.querySelector('.dsg-rowname')?.textContent === label)
 	if (row === undefined) return false
-	const btn = [...row.querySelectorAll('button')].find((b) => (b.textContent ?? '').trim() === text)
+	// 图标按钮的内容是 SVG，textContent 空 —— 支持按 class 或文字定位
+	const btn = [...row.querySelectorAll('button')].find((b) => (b.textContent ?? '').trim() === text || b.classList.contains(text))
 	if (btn === undefined) return false
 	btn.click()
 	return true
@@ -444,7 +445,7 @@ const clickRowButton = (label, text) => page.evaluate(({ label, text }) => {
 const beforeHide = await navVisible()
 check('隐藏前条目在导航里', beforeHide.includes('Codex 订阅'), beforeHide.join(' / '))
 
-check('行内有隐藏按钮', await clickRowButton('Codex 订阅', '⊘'))
+check('行内有隐藏按钮', await clickRowButton('Codex 订阅', 'dsg-hide'))
 await page.waitForTimeout(500)
 const afterHide = await navVisible()
 check('隐藏后导航里消失了', !afterHide.includes('Codex 订阅'), afterHide.join(' / '))
@@ -463,7 +464,7 @@ check('取消隐藏后「已隐藏」清空', (await hiddenPanel())?.length === 
 
 // ---- 9.75 卸载的插件不能变成「幽灵隐藏项」----
 // 先藏一个，再把它从台账里摘掉，模拟插件卸载
-await clickRowButton('Remotion', '⊘')
+await clickRowButton('Remotion', 'dsg-hide')
 await page.waitForTimeout(400)
 await page.evaluate(() => window.__removeSection('dsh-remotion'))
 await page.waitForTimeout(500)
@@ -526,7 +527,8 @@ const moved = await page.evaluate(() => {
 	const section = [...document.querySelectorAll('.dsg-section')]
 		.find((x) => x.querySelector('.dsg-sectiontitle')?.textContent === '顶部固定项')
 	const row = [...section.querySelectorAll('.dsg-row')].find((r) => r.querySelector('.dsg-rowname')?.textContent === '模型')
-	const btn = [...row.querySelectorAll('button')].find((b) => b.textContent === '↑')
+	// 图标换成 SVG 之后 textContent 是空的，用 title 找
+	const btn = [...row.querySelectorAll('button')].find((b) => b.title === '上移')
 	if (btn === undefined || btn.disabled) return false
 	btn.click()
 	return true
@@ -539,7 +541,7 @@ const hidCore = await page.evaluate(() => {
 	const section = [...document.querySelectorAll('.dsg-section')]
 		.find((x) => x.querySelector('.dsg-sectiontitle')?.textContent === '顶部固定项')
 	const row = [...section.querySelectorAll('.dsg-row')].find((r) => r.querySelector('.dsg-rowname')?.textContent === '账号与余额')
-	const btn = [...row.querySelectorAll('button')].find((b) => b.textContent === '⊘')
+	const btn = [...row.querySelectorAll('button')].find((b) => b.classList.contains('dsg-hide'))
 	if (btn === undefined) return false
 	btn.click()
 	return true
