@@ -796,7 +796,13 @@ window.__ModuleLoader__.load({
 				".dsg-rowgrip{flex:none;width:13px;color:var(--dsw-alias-label-tertiary,#aaa);cursor:grab;font-size:11px;text-align:center}",
 				".dsg-rowname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}",
 				".dsg-input{box-sizing:border-box;flex:1;min-width:0;height:34px;padding:0 11px;border-radius:8px;border:1px solid rgba(127,127,127,.26);background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:13.5px;transition:border-color .16s ease}",
-				".dsg-input:focus{outline:none;border-color:var(--dsg-accent,#4a7cf5)}",
+				".dsg-input:focus{outline:none;border-color:rgba(127,127,127,.5)}",
+				// 「新建」得像个按钮：有边框、跟输入框同高。之前用 .dsg-btn（透明底）看着像超链接
+				".dsg-new{display:flex;gap:8px;align-items:center}",
+				".dsg-create{flex:none;height:34px;padding:0 15px;border-radius:8px;border:1px solid rgba(127,127,127,.3);background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:13px;font-weight:600;line-height:1;cursor:pointer;transition:border-color .15s ease,background .15s ease,transform .1s ease}",
+				".dsg-create:hover{border-color:rgba(127,127,127,.52);background:rgba(127,127,127,.06)}",
+				".dsg-create:active{transform:scale(.97)}",
+				".dsg-create[disabled]{opacity:.38;cursor:default;border-color:rgba(127,127,127,.2);background:transparent}",
 				".dsg-new{display:flex;gap:8px;align-items:center}",
 				// 自定义下拉：按钮 + 浮层，跟 chip 同一套灰调，不用原生 select
 				".dsg-picker{position:relative;flex:none}",
@@ -2439,6 +2445,42 @@ window.__ModuleLoader__.load({
 			 * 把某个分组挪到目标旁边（目标可以是另一个分组，也可以是核心项）。
 			 * @param {{gid?: string, coreId?: string, after?: boolean}} target
 			 */
+			/** 记下管理页所有卡片/行的位置，用来给 ↑↓ 做过渡。 */
+			const snapshotPage = () => {
+				const map = new Map();
+				for (const el of document.querySelectorAll(".dsg-page .dsg-card, .dsg-page .dsg-row")) {
+					map.set(el, el.getBoundingClientRect());
+				}
+				return map;
+			};
+
+			/**
+			 * 让管理页的元素从旧位置滑到新位置。
+			 * 必须等 React 重渲染完再量 —— 所以延到下一帧之后。
+			 */
+			const flipPage = (before) => {
+				const apply = () => {
+					for (const [el, oldRect] of before) {
+						if (!el.isConnected) continue;
+						const now = el.getBoundingClientRect();
+						const dx = oldRect.left - now.left;
+						const dy = oldRect.top - now.top;
+						if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+						try {
+							el.animate(
+								[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
+								{ duration: 240, easing: "cubic-bezier(.2,.7,.3,1)" },
+							);
+						} catch (_ignored) {
+							/* 不支持 WAAPI 就直接跳 */
+						}
+					}
+				};
+				requestAnimationFrame(() => {
+					requestAnimationFrame(apply);
+				});
+			};
+
 			/** 把某个核心项挪到目标旁边（目标是核心项或分组都行）。 */
 			const moveCoreTo = (id, target) => {
 				if (target === null || target === undefined) return;
@@ -2448,9 +2490,11 @@ window.__ModuleLoader__.load({
 					? list.findIndex((x) => x.kind === "group" && x.id === target.gid)
 					: list.findIndex((x) => x.kind === "core" && x.id === target.coreId);
 				if (at < 0) return;
+				const before = snapshotPage();
 				list.splice(target.after === true ? at + 1 : at, 0, { kind: "core", id });
 				commitTopOrder(list);
 				save();
+				flipPage(before);
 			};
 
 			const moveGroupTo = (gid, target) => {
@@ -2461,9 +2505,11 @@ window.__ModuleLoader__.load({
 					? list.findIndex((x) => x.kind === "group" && x.id === target.gid)
 					: list.findIndex((x) => x.kind === "core" && x.id === target.coreId);
 				if (at < 0) return;
+				const before = snapshotPage();
 				list.splice(target.after === true ? at + 1 : at, 0, { kind: "group", id: gid });
 				commitTopOrder(list);
 				save();
+				flipPage(before);
 			};
 
 			const moveCore = (id, delta) => {
@@ -2983,7 +3029,6 @@ window.__ModuleLoader__.load({
 								h("p", { className: "dsg-hero-sub" }, tPage("heroSub")),
 							),
 						),
-						h("span", { className: "dsg-hero-tag" }, tPage("heroTag")),
 					),
 					legacyRunning()
 						? h("p", { className: "dsg-warn" }, tPage("legacyWarn"))
@@ -3024,7 +3069,7 @@ window.__ModuleLoader__.load({
 								if (e.key === "Enter") addGroup();
 							},
 						}),
-						h("button", { type: "button", className: "dsg-btn", onClick: addGroup, disabled: draft.trim() === "" }, tPage("create")),
+						h("button", { type: "button", className: "dsg-create", onClick: addGroup, disabled: draft.trim() === "" }, tPage("create")),
 					),
 					h("div", { className: "dsg-section" },
 						h("div", { className: "dsg-sectionhead" },
