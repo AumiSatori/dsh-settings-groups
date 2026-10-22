@@ -798,11 +798,20 @@ const ghostState = await page.evaluate(async () => {
 		pointerEvents: cs.pointerEvents,
 		// 快照本身就是 dialog 的克隆，属性一模一样 —— 必须排除掉才是在看"真面板没了没"
 		origin: document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]:not([data-dsg-ghost])') === null,
+		// 分层退场：内容先淡，框延后；两段都要在跑
+		contentAnim: (() => {
+			let el = g.querySelector('nav').nextElementSibling
+			while (el !== null && el.classList.contains('dsh-ptweak-split')) el = el.nextElementSibling
+			return el === null ? null : getComputedStyle(el).animationName
+		})(),
+		panelDelay: cs.animationDelay,
 	}
 })
 check('关闭时留了一张快照', ghostState.exists === true, JSON.stringify(ghostState))
 check('快照在原地淡出且不吃点击', ghostState.position === 'fixed' && ghostState.animation.includes('dsgPanelOut') && ghostState.pointerEvents === 'none', JSON.stringify(ghostState))
 check('快照出现时真面板已消失', ghostState.origin === true, String(ghostState.origin))
+check('内容区先播退场', ghostState.contentAnim === 'dsgContentOut', String(ghostState.contentAnim))
+check('整框退场带延迟', parseFloat(ghostState.panelDelay) > 0, String(ghostState.panelDelay))
 
 await page.waitForTimeout(700)
 check('快照会自毁', (await page.evaluate(() => document.querySelector('[data-dsg-ghost="1"]') === null)))

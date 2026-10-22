@@ -2189,6 +2189,9 @@ window.__ModuleLoader__.load({
 				`${PT_SEL}{animation:dsgPanelIn .24s cubic-bezier(.2,.7,.3,1)}`,
 				// 出：宿主直接把 dialog 卸掉，我们来不及在它身上播动画。
 				// 所以移除瞬间留一张同尺寸快照在原地淡出，人眼看就是面板在退场。
+				// 退场分两层：先让右侧内容淡掉（像是"白掉"），整个框再收走。
+				// 同时淡出会显得两边各走各的；分层之后有先后，看着是一个东西在关。
+				"@keyframes dsgContentOut{from{opacity:1}to{opacity:0}}",
 				"@keyframes dsgPanelOut{from{opacity:1;scale:1}to{opacity:0;scale:.965}}",
 				"[data-dsg-ghost=\"1\"]{animation:dsgPanelOut .26s cubic-bezier(.4,0,.9,.4) forwards}",
 				// ⚠️ 这里**不要**常驻 `will-change:transform`。
@@ -2255,11 +2258,17 @@ window.__ModuleLoader__.load({
 					st.pointerEvents = "none";
 					st.zIndex = "2147483000";
 					// inline 指定，别跟 CSS 特异性较劲
-					st.animation = "dsgPanelOut .26s cubic-bezier(.4,0,.9,.4) forwards";
+					// 内容先退（0–160ms），框后收（130ms 起，240ms）——两层叠一点点，不要硬切
+					st.animation = "dsgPanelOut .24s cubic-bezier(.4,0,.9,.4) .13s forwards";
 					document.body.appendChild(ghost);
+					// 克隆体里也要按同样的规则找内容区（跳过我们插的分隔条）
+					const ghostContent = ptContentOf(ghost);
+					if (ghostContent !== null) {
+						ghostContent.style.animation = "dsgContentOut .16s ease forwards";
+					}
 					const kill = () => ghost.remove();
 					ghost.addEventListener("animationend", kill);
-					setTimeout(kill, 600); // 双保险：animationend 万一没来
+					setTimeout(kill, 700); // 双保险：animationend 万一没来（两段合计 370ms）
 				} catch (_ignored) {
 					/* 克隆失败就让它直接消失，不影响关闭本身 */
 				}
