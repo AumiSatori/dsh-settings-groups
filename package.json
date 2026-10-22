@@ -1,6 +1,6 @@
 {
   "name": "dsh-settings-groups",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "DeepSeek Harness 设置导航分组：紧凑分组标签、自由拖拽排序、分组与未分组随意派发，带展开/收起过渡动画。 / Compact, drag-and-drop groups for the DeepSeek Harness settings sidebar.",

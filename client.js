@@ -3209,7 +3209,6 @@ window.__ModuleLoader__.load({
 			//     └─ div   内容区（首个子节点是 header）
 			// 尺寸/位移沿用原来的 localStorage 键，之前调好的宽度和位置继续有效。
 			const PT_SEL = '[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]';
-			const PT_SURFACE = `:is(${PT_SEL}, [data-dsg-ghost="1"])`;
 			const PT_KEY = "dsh.settingsPanelTweak.v1";
 			const PT_MIN_NAV = 150;
 			const PT_MIN_CONTENT = 260;
@@ -3240,15 +3239,6 @@ window.__ModuleLoader__.load({
 			const ptStyle = document.createElement("style");
 			ptStyle.dataset.dshPtweak = "1";
 			const PT_CSS = [
-				// 沿用 Claude 美化的毛玻璃材质：只在面板底层模糊背景，文字与卡片不叠滤镜。
-				`${PT_SURFACE}{--dsg-glass-bg:rgba(236,242,248,.62);--dsg-glass-border:rgba(255,255,255,.72);--dsg-glass-shadow:0 12px 32px rgba(28,32,40,.1),inset 0 1px 0 rgba(255,255,255,.9),inset 1px 0 0 rgba(255,255,255,.45),inset -1px -1px 0 rgba(255,255,255,.2);--dsg-glass-card:rgba(255,255,255,.32);--dsg-glass-card-border:rgba(255,255,255,.55);--dsg-glass-primary:#20242a;--dsg-glass-body:#414852;--dsg-glass-muted:#59616d;--dsg-glass-sheen:.22;background-color:var(--dsg-glass-bg) !important;background-image:radial-gradient(ellipse at 8% 0%,rgb(255 255 255 / calc(var(--dsg-glass-sheen) * .28)),transparent 56%),linear-gradient(123deg,rgb(255 255 255 / calc(var(--dsg-glass-sheen) * .1)),transparent 28% 72%,rgb(255 255 255 / calc(var(--dsg-glass-sheen) * .08))) !important;border:1px solid var(--dsg-glass-border) !important;box-shadow:var(--dsg-glass-shadow) !important;backdrop-filter:blur(22px) saturate(1.45);-webkit-backdrop-filter:blur(22px) saturate(1.45);color:var(--dsg-glass-primary)}`,
-				`body[data-ds-dark-theme] ${PT_SURFACE}{--dsg-glass-bg:rgba(160,174,190,.26);--dsg-glass-border:rgba(255,255,255,.34);--dsg-glass-shadow:0 12px 32px #0005,inset 0 1px 0 #ffffff52,inset 1px 0 0 #ffffff24,inset -1px -1px 0 #ffffff14;--dsg-glass-card:rgba(225,233,242,.06);--dsg-glass-card-border:rgba(225,233,242,.16);--dsg-glass-primary:#f4f6f8;--dsg-glass-body:#dce2e9;--dsg-glass-muted:#c8d0da;--dsg-glass-sheen:.32}`,
-				`${PT_SURFACE} > nav,${PT_SURFACE} > [data-dsg-content],${PT_SURFACE} > [data-dsg-content] > header{background:transparent !important}`,
-				`${PT_SURFACE} .dsg-page{--dsw-alias-label-primary:var(--dsg-glass-primary);--dsw-alias-label-secondary:var(--dsg-glass-muted);--dsw-alias-label-tertiary:var(--dsg-glass-muted);color:var(--dsg-glass-body)}`,
-				`${PT_SURFACE} .dsg-card{background:var(--dsg-glass-card);border-color:var(--dsg-glass-card-border)}`,
-				// 无背景滤镜时提高底色遮盖度；高对比度模式使用系统配色。
-				`@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){${PT_SURFACE}{--dsg-glass-bg:rgba(236,242,248,.96)}body[data-ds-dark-theme] ${PT_SURFACE}{--dsg-glass-bg:rgba(65,72,81,.96)}}`,
-				`@media(forced-colors:active){${PT_SURFACE}{background:Canvas !important;color:CanvasText !important;border-color:CanvasText !important;box-shadow:none !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}${PT_SURFACE} .dsg-page{--dsw-alias-label-primary:CanvasText;--dsw-alias-label-secondary:CanvasText;--dsw-alias-label-tertiary:GrayText}${PT_SURFACE} .dsg-card{background:Canvas;border-color:CanvasText}}`,
 				".dsh-ptweak-split{flex:0 0 6px;align-self:stretch;position:relative;cursor:col-resize;background:transparent;z-index:4}",
 				".dsh-ptweak-split::after{content:'';position:absolute;top:10px;bottom:10px;left:2px;width:2px;border-radius:1px;background:transparent;transition:background .12s}",
 				".dsh-ptweak-split:hover::after,.dsh-ptweak-split[data-dragging='1']::after{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.45))}",
@@ -3389,7 +3379,6 @@ window.__ModuleLoader__.load({
 				const content = ptContentOf(panel);
 				if (nav === null || content === null) return;
 				panel.dataset.dshPtweak = "1";
-				content.dataset.dsgContent = "1";
 				const saved = ptRead();
 
 				// ① 导航栏宽度。宿主的 nav 带内边距：rect 宽度 ≠ style.width，
@@ -3694,8 +3683,6 @@ window.__ModuleLoader__.load({
 					for (const el of document.querySelectorAll(".dsh-ptweak-split, .dsh-ptweak-rz")) el.remove();
 					const panel = document.querySelector(PT_SEL);
 					if (panel !== null) {
-						const content = ptContentOf(panel);
-						if (content !== null) delete content.dataset.dsgContent;
 						delete panel.dataset.dshPtweak;
 						panel.style.transform = "";
 						panel.style.width = "";
