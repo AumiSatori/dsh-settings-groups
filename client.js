@@ -56,6 +56,12 @@ window.__ModuleLoader__.load({
 			// ---------------------------------------------------------------- 文案
 			ctx.effect(() => ctx.locale.register(NS, "zh", {
 				label: "分组管理",
+				heroTitle: "设置分组",
+				heroSub: "把宿主的设置入口收进分组：排序、隐藏、在分组与未分组之间随意派发。",
+				heroTag: "Layered",
+				badgeOn: "已开启",
+				badgeOff: "已关闭",
+				statusBar: "{groups} 个分组 · {items} 个设置入口 · {hidden} 个已隐藏",
 				ungrouped: "未分组",
 				expand: "展开",
 				collapse: "收起",
@@ -119,6 +125,12 @@ window.__ModuleLoader__.load({
 
 			ctx.effect(() => ctx.locale.register(NS, "en", {
 				label: "Groups",
+				heroTitle: "Settings groups",
+				heroSub: "Collect the host's settings entries into groups: reorder, hide, and move them between groups and the ungrouped bucket.",
+				heroTag: "Layered",
+				badgeOn: "On",
+				badgeOff: "Off",
+				statusBar: "{groups} groups · {items} entries · {hidden} hidden",
 				ungrouped: "Ungrouped",
 				expand: "Expand",
 				collapse: "Collapse",
@@ -668,8 +680,16 @@ window.__ModuleLoader__.load({
 				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .22s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
 				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .22s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
 				// —— 管理页 ——
-				".dsg-page{display:flex;flex-direction:column;gap:16px;box-sizing:border-box;width:100%;max-width:100%;min-width:0;font-size:14px}",
-				".dsg-card{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:12px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.18))}",
+				// 管理页是「我自己的页面」，可以用自己的设计语言（导航区还是得跟宿主灰调）：
+				// 大圆角卡片 + 超大标题 + 浅灰子卡片 + 紫蓝强调色 + 状态徽章。
+				// 强调色走宿主变量，深色主题自动跟着换。
+				".dsg-page{--dsg-accent:var(--dsw-alias-state-info-primary,#5b5bf6);display:flex;flex-direction:column;gap:18px;box-sizing:border-box;width:100%;max-width:100%;min-width:0;font-size:14px}",
+				".dsg-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:2px 2px 8px}",
+				".dsg-hero-title{margin:0;font-size:21px;line-height:28px;font-weight:700;letter-spacing:-.01em;color:var(--dsw-alias-label-primary,#1f1f22)}",
+				".dsg-hero-sub{margin:5px 0 0;font-size:13.5px;line-height:20px;color:var(--dsw-alias-label-secondary,#8a8a8a)}",
+				".dsg-hero-tag{flex:none;margin-top:6px;font-size:13px;line-height:18px;font-weight:600;color:var(--dsg-accent)}",
+				".dsg-subcard{display:flex;flex-direction:column;gap:6px;padding:16px 18px;border-radius:13px;background:rgba(127,127,127,.055)}",
+				".dsg-card{display:flex;flex-direction:column;gap:14px;padding:20px 22px;border-radius:16px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid rgba(127,127,127,.14);box-shadow:0 1px 2px rgba(0,0,0,.03)}",
 				".dsg-card[data-over=\"1\"]{border-color:var(--dsg-accent,#4a7cf5);background:color-mix(in srgb, var(--dsg-accent,#4a7cf5) 7%, transparent)}",
 				".dsg-cardhead{display:flex;align-items:center;gap:8px;min-width:0}",
 				".dsg-cardname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#333)}",
@@ -705,15 +725,19 @@ window.__ModuleLoader__.load({
 				"@keyframes dsgMenuIn{from{opacity:0;transform:translateY(-5px) scale(.97)}to{opacity:1;transform:none}}",
 				".dsg-picker-item{border:none;background:transparent;text-align:left;padding:6px 10px;border-radius:5px;font-family:inherit;font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary,#333);cursor:pointer;white-space:nowrap}",
 				".dsg-picker-item:hover{background:rgba(127,127,127,.11)}",
+				".dsg-badge{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 9px;border-radius:999px;font-size:12px;line-height:1;font-weight:600;background:color-mix(in srgb, var(--dsw-alias-state-success-primary,#2ea043) 13%, transparent);color:var(--dsw-alias-state-success-primary,#2ea043)}",
+				".dsg-badge[data-off=\"1\"]{background:rgba(127,127,127,.12);color:var(--dsw-alias-label-secondary,#8a8a8a)}",
+				".dsg-status{display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:12px;background:rgba(127,127,127,.055);font-size:13px;line-height:19px;color:var(--dsw-alias-label-secondary,#8a8a8a)}",
+				".dsg-status-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--dsg-accent,#5b5bf6)}",
 				".dsg-hint{margin:0;color:var(--dsw-alias-label-secondary,#999);font-size:12.5px;line-height:19px}",
 				".dsg-warn{margin:0;padding:8px 10px;border-radius:8px;background:color-mix(in srgb, var(--dsw-alias-state-warn-primary,#f5a524) 12%, transparent);color:var(--dsw-alias-state-warn-primary,#b8770b);font-size:12px;line-height:18px}",
 				".dsg-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}",
 				".dsg-toggletext{display:flex;flex-direction:column;gap:2px;min-width:0}",
 				".dsg-toggletitle{font-size:14px;color:var(--dsw-alias-label-primary,#333)}",
-				".dsg-switch{flex:none;position:relative;width:34px;height:20px;border-radius:999px;border:none;background:var(--dsw-alias-label-tertiary,#bbb);cursor:pointer;padding:0;transition:background .18s ease}",
-				".dsg-switch[data-on=\"1\"]{background:var(--dsw-alias-state-success-primary,#46a758)}",
-				".dsg-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .18s cubic-bezier(.22,.8,.28,1)}",
-				".dsg-switch[data-on=\"1\"] .dsg-knob{transform:translateX(14px)}",
+				".dsg-switch{flex:none;position:relative;width:42px;height:24px;border-radius:999px;border:none;background:rgba(127,127,127,.32);cursor:pointer;padding:0;transition:background .2s ease}",
+				".dsg-switch[data-on=\"1\"]{background:var(--dsg-accent,#5b5bf6)}",
+				".dsg-knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .2s cubic-bezier(.22,.8,.28,1)}",
+				".dsg-switch[data-on=\"1\"] .dsg-knob{transform:translateX(18px)}",
 				".dsg-section{display:flex;flex-direction:column;gap:6px}",
 				".dsg-sectionhead{display:flex;align-items:baseline;gap:8px}",
 				".dsg-sectiontitle{font-size:12.5px;font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-secondary,#888);text-transform:uppercase}",
@@ -1994,24 +2018,40 @@ window.__ModuleLoader__.load({
 				};
 
 				return h("div", { className: "dsg-page" },
+					// 主标题区：大标题 + 副标题 + 右上角标签（跟 Claude 美化那页同一套骨架）
+					h("div", { className: "dsg-hero" },
+						h("div", null,
+							h("div", { className: "dsg-hero-title" }, tPage("heroTitle")),
+							h("p", { className: "dsg-hero-sub" }, tPage("heroSub")),
+						),
+						h("span", { className: "dsg-hero-tag" }, tPage("heroTag")),
+					),
 					legacyRunning()
 						? h("p", { className: "dsg-warn" }, tPage("legacyWarn"))
 						: null,
 					h("div", { className: "dsg-card" },
-						h("div", { className: "dsg-toggle" },
-							h("div", { className: "dsg-toggletext" },
-								h("span", { className: "dsg-toggletitle" }, tPage("enabled")),
-								h("span", { className: "dsg-hint" }, tPage("enabledDesc")),
+						h("div", { className: "dsg-subcard" },
+							h("div", { className: "dsg-toggle" },
+								h("div", { className: "dsg-toggletext" },
+									h("div", { style: { display: "flex", alignItems: "center", gap: "9px" } },
+										h("span", { className: "dsg-toggletitle" }, tPage("enabled")),
+										h("span", {
+											className: "dsg-badge",
+											"data-off": state.enabled ? undefined : "1",
+										}, `${state.enabled ? "✓ " : ""}${state.enabled ? tPage("badgeOn") : tPage("badgeOff")}`),
+									),
+									h("span", { className: "dsg-hint" }, tPage("enabledDesc")),
+								),
+								h("button", {
+									type: "button",
+									className: "dsg-switch",
+									"data-on": state.enabled ? "1" : "0",
+									onClick: () => {
+										state.enabled = !state.enabled;
+										commit();
+									},
+								}, h("span", { className: "dsg-knob" })),
 							),
-							h("button", {
-								type: "button",
-								className: "dsg-switch",
-								"data-on": state.enabled ? "1" : "0",
-								onClick: () => {
-									state.enabled = !state.enabled;
-									commit();
-								},
-							}, h("span", { className: "dsg-knob" })),
 						),
 					),
 					h("p", { className: "dsg-hint" }, tPage("panelHint")),
@@ -2150,6 +2190,14 @@ window.__ModuleLoader__.load({
 								);
 							})),
 						),
+					),
+					// 底部状态条：一眼看到"现在到底有多少东西被这样管着"
+					h("div", { className: "dsg-status" },
+						h("span", { className: "dsg-status-dot" }),
+						h("span", null, tPage("statusBar")
+							.replace("{groups}", String(groups.length))
+							.replace("{items}", String(total))
+							.replace("{hidden}", String(hiddenIds.length))),
 					),
 					h("div", { className: "dsg-foot" },
 						h("button", {
