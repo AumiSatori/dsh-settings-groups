@@ -708,7 +708,15 @@ window.__ModuleLoader__.load({
 				// height / padding / margin 也一起过渡，否则条目淡出后下面的内容
 				// 会「啪」地往上跳一格（这才是收起动画最容易露馅的地方）。
 				// 顺带把宿主原本的 hover 底色过渡带上，免得覆盖掉它自己那套手感。
-				"[data-dsg-item]{transform-origin:center top;transition:background-color .15s ease,color .15s ease,opacity .2s ease,transform .26s cubic-bezier(.4,0,.2,1),filter .2s ease,height .26s cubic-bezier(.4,0,.2,1),padding-top .26s cubic-bezier(.4,0,.2,1),padding-bottom .26s cubic-bezier(.4,0,.2,1),margin-top .26s cubic-bezier(.4,0,.2,1),margin-bottom .26s cubic-bezier(.4,0,.2,1)}",
+				"[data-dsg-item]{transform-origin:center top;transition:background-color .15s ease,color .15s ease,opacity .2s ease,transform .26s cubic-bezier(.4,0,.2,1),filter .2s ease,height .26s cubic-bezier(.4,0,.2,1),padding-top .26s cubic-bezier(.4,0,.2,1),padding-bottom .26s cubic-bezier(.4,0,.2,1),margin-top .26s cubic-bezier(.4,0,.2,1),margin-bottom .26s cubic-bezier(.4,0,.2,1),box-shadow .18s ease}",
+				// 悬浮 / 选中时"浮起来"：白底 + 两层阴影（贴地的接触阴影 + 扩散的投影）。
+				// 刻意**不用** transform: translateY —— 常驻变换会让文字失去次像素抗锯齿，发虚。
+				// 特异性要压过宿主的 .nav-item（同样是单类），所以带上 button 前缀
+				// 宿主的 .nav-item 规则比这里更"晚"也更强，普通声明压不住 —— 只能上 !important。
+				// 只影响这三个视觉属性，不碰布局。
+				"button[data-dsg-item]{border-radius:8px !important}",
+				"button[data-dsg-item]:hover{background:var(--dsw-alias-bg-layer-1,#fff) !important;box-shadow:0 1px 2px rgba(0,0,0,.05),0 6px 16px -6px rgba(0,0,0,.18) !important}",
+				"button[data-dsg-item][aria-current=\"true\"]{background:var(--dsw-alias-bg-layer-1,#fff) !important;box-shadow:0 1px 3px rgba(0,0,0,.07),0 8px 20px -8px rgba(0,0,0,.2) !important}",
 				// 只在动画那一下提层，平时不占合成层
 				"[data-dsg-item][data-dsg-anim]{will-change:opacity,transform,filter,height}",
 				// ⚠️ 入场必须用 animation，不能用 transition。
@@ -2150,6 +2158,9 @@ window.__ModuleLoader__.load({
 					for (const r of rows) {
 						const btn = refs.get(r.id);
 						if (btn === undefined) continue;
+						// 标记放在这里而不是 bindItemDrag 里：核心项已经不走那条路径了，
+						// 但悬停/选中的样式是按这个属性挂的。
+						btn.dataset.dsgItem = "1";
 						if (isCore(r.id)) bindCorePointerDrag(btn, r.id);
 						else bindItemDrag(btn);
 					}
