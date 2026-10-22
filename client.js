@@ -694,7 +694,17 @@ window.__ModuleLoader__.load({
 				".dsg-input{box-sizing:border-box;flex:1;min-width:0;height:30px;padding:0 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.28));background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:12.5px}",
 				".dsg-input:focus{outline:none;border-color:var(--dsg-accent,#4a7cf5)}",
 				".dsg-new{display:flex;gap:8px;align-items:center}",
-				".dsg-select{box-sizing:border-box;height:24px;max-width:130px;padding:0 6px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.28));background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:11.5px}",
+				// 自定义下拉：按钮 + 浮层，跟 chip 同一套灰调，不用原生 select
+				".dsg-picker{position:relative;flex:none}",
+				".dsg-picker-btn{display:flex;align-items:center;gap:5px;height:24px;padding:0 8px;border:1px solid rgba(127,127,127,.26);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#888);font-family:inherit;font-size:11.5px;line-height:1;cursor:pointer;transition:border-color .15s ease,color .15s ease}",
+				".dsg-picker-btn:hover{border-color:rgba(127,127,127,.45);color:var(--dsw-alias-label-primary,#333)}",
+				".dsg-picker-btn[aria-expanded=\"true\"]{border-color:rgba(127,127,127,.52);color:var(--dsw-alias-label-primary,#333)}",
+				".dsg-picker-caret{width:4px;height:4px;border-right:1.4px solid currentColor;border-bottom:1.4px solid currentColor;transform:rotate(45deg) translateY(-1px);opacity:.7;transition:transform .16s ease}",
+				".dsg-picker-btn[aria-expanded=\"true\"] .dsg-picker-caret{transform:rotate(-135deg) translateY(-1px)}",
+				".dsg-picker-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:12;display:flex;flex-direction:column;gap:1px;min-width:112px;max-height:240px;overflow-y:auto;padding:3px;border-radius:8px;border:1px solid rgba(127,127,127,.18);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 8px 24px rgba(0,0,0,.14);animation:dsgMenuIn .14s cubic-bezier(.2,.7,.3,1)}",
+				"@keyframes dsgMenuIn{from{opacity:0;transform:translateY(-5px) scale(.97)}to{opacity:1;transform:none}}",
+				".dsg-picker-item{border:none;background:transparent;text-align:left;padding:5px 9px;border-radius:5px;font-family:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#333);cursor:pointer;white-space:nowrap}",
+				".dsg-picker-item:hover{background:rgba(127,127,127,.11)}",
 				".dsg-hint{margin:0;color:var(--dsw-alias-label-secondary,#999);font-size:11.5px;line-height:18px}",
 				".dsg-warn{margin:0;padding:8px 10px;border-radius:8px;background:color-mix(in srgb, var(--dsw-alias-state-warn-primary,#f5a524) 12%, transparent);color:var(--dsw-alias-state-warn-primary,#b8770b);font-size:12px;line-height:18px}",
 				".dsg-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}",
@@ -1764,21 +1774,15 @@ window.__ModuleLoader__.load({
 					},
 				}, "↓"),
 				gid === undefined
-					? h("select", {
-						className: "dsg-select",
-						value: "",
-						title: tPage("toGroup"),
-						onChange: (e) => {
-							const target = e.target.value;
-							if (target === "") return;
+					? h(GroupPicker, {
+						groups,
+						label: tPage("toGroup"),
+						onPick: (target) => {
 							place(id, { gid: target, anchorGid: target });
 							const g = groupById(target);
 							commit(g === undefined ? undefined : tPage("movedTo").replace("{name}", g.name));
 						},
-					},
-					h("option", { value: "" }, tPage("toGroup")),
-					groups.map((g) => h("option", { key: g.id, value: g.id }, g.name)),
-					)
+					})
 					: h("button", {
 						type: "button",
 						className: "dsg-btn dsg-btn-ghost",
@@ -1799,6 +1803,56 @@ window.__ModuleLoader__.load({
 					},
 				}, "⊘"),
 				);
+
+				/**
+				 * 自定义下拉：原生 <select> 在浅色主题里是「白底 + 蓝条 + 黑边框」，
+				 * 跟整套灰调格格不入，而且没法跟主题变量走。这里自己画一个。
+				 */
+				function GroupPicker({ groups: list, label, onPick }) {
+					const [open, setOpen] = React.useState(false);
+					const boxRef = React.useRef(null);
+					React.useEffect(() => {
+						if (!open) return;
+						const away = (ev) => {
+							if (boxRef.current !== null && !boxRef.current.contains(ev.target)) setOpen(false);
+						};
+						const esc = (ev) => {
+							if (ev.key === "Escape") setOpen(false);
+						};
+						document.addEventListener("pointerdown", away);
+						document.addEventListener("keydown", esc);
+						return () => {
+							document.removeEventListener("pointerdown", away);
+							document.removeEventListener("keydown", esc);
+						};
+					}, [open]);
+					return h("div", { className: "dsg-picker", ref: boxRef },
+						h("button", {
+							type: "button",
+							className: "dsg-picker-btn",
+							"aria-haspopup": "listbox",
+							"aria-expanded": open ? "true" : "false",
+							onClick: () => setOpen((v) => !v),
+						},
+						h("span", null, label),
+						h("span", { className: "dsg-picker-caret" }),
+						),
+						open
+							? h("div", { className: "dsg-picker-menu", role: "listbox" },
+								list.map((g) => h("button", {
+									key: g.id,
+									type: "button",
+									role: "option",
+									className: "dsg-picker-item",
+									onClick: () => {
+										setOpen(false);
+										onPick(g.id);
+									},
+								}, g.name)),
+							)
+							: null,
+					);
+				}
 
 				/** 顶部固定项：只有排序和隐藏，没有分组。 */
 				const pinnedRow = (id, index) => h("div", { key: `p-${id}`, className: "dsg-row" },

@@ -547,6 +547,27 @@ const afterDragCore = await navVisible()
 check('核心项能在导航里拖动', afterDragCore.indexOf('插件') < beforeDragCore.indexOf('插件'), `${beforeDragCore.slice(0, 4).join('/')} → ${afterDragCore.slice(0, 4).join('/')}`)
 check('拖完有 FLIP 过渡', flipRunning > 0, `running=${flipRunning}`)
 
+// ---- 9.7d 设置页不许用原生控件 ----
+check('管理页没有原生 select', (await page.locator('.dsg-page select').count()) === 0)
+check('管理页没有原生 checkbox', (await page.locator('.dsg-page input[type=checkbox]').count()) === 0)
+
+await page.evaluate(() => document.querySelector('.dsg-picker-btn')?.click())
+await page.waitForTimeout(160)
+const pickerMenu = await page.evaluate(() => {
+	const menu = document.querySelector('.dsg-picker-menu')
+	if (menu === null) return null
+	return {
+		items: [...menu.querySelectorAll('.dsg-picker-item')].map((x) => x.textContent),
+		anim: getComputedStyle(menu).animationName,
+		radius: getComputedStyle(menu).borderRadius,
+	}
+})
+check('自定义下拉能展开', pickerMenu !== null && pickerMenu.items.length > 0, JSON.stringify(pickerMenu?.items))
+check('下拉浮层有进场动画', pickerMenu !== null && pickerMenu.anim.includes('dsgMenuIn'), String(pickerMenu?.anim))
+check('下拉浮层是圆角不是方角', pickerMenu !== null && pickerMenu.radius !== '0px', String(pickerMenu?.radius))
+await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
+await page.waitForTimeout(120)
+
 // ---- 9.8 搜索 ----
 const typeSearch = async (q) => {
 	await page.fill('.dsg-search-input', q)
