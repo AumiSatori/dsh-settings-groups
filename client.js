@@ -745,7 +745,7 @@ window.__ModuleLoader__.load({
 				// 卡片之间单独拉开：只影响"卡→卡"，别把"标题→第一张卡"也一起推远
 				".dsg-section > .dsg-card{margin-bottom:10px}",
 				".dsg-section > .dsg-card:last-child{margin-bottom:0}",
-				".dsg-cardhead{position:relative;display:flex;align-items:center;gap:8px;min-width:0}",
+				".dsg-cardhead{position:relative;display:flex;align-items:center;gap:8px;min-width:0;padding-right:8px}",
 				// 删除确认气泡：挂在卡片头下方，就地询问，不弹系统 confirm
 				".dsg-confirm{position:absolute;right:0;top:calc(100% + 10px);z-index:6;width:238px;padding:13px 15px;border-radius:12px;border:1px solid rgba(127,127,127,.16);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 14px 36px -10px rgba(0,0,0,.24);animation:dsgMenuIn .14s cubic-bezier(.2,.7,.3,1)}",
 				".dsg-confirm-text{margin:0 0 11px;font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-primary,#333)}",
@@ -2615,7 +2615,7 @@ window.__ModuleLoader__.load({
 				h("span", { className: "dsg-rowname", title: labelOf(id) }, labelOf(id)),
 				h("button", {
 					type: "button",
-					className: "dsg-btn dsg-btn-ghost",
+					className: "dsg-btn dsg-btn-ghost dsg-icon",
 					title: tPage("up"),
 					onClick: () => {
 						moveEntry(gid, id, -1);
@@ -2624,7 +2624,7 @@ window.__ModuleLoader__.load({
 				}, iconEl(ICON_UP, undefined, 2)),
 				h("button", {
 					type: "button",
-					className: "dsg-btn dsg-btn-ghost",
+					className: "dsg-btn dsg-btn-ghost dsg-icon",
 					title: tPage("down"),
 					onClick: () => {
 						moveEntry(gid, id, 1);
@@ -2778,7 +2778,7 @@ window.__ModuleLoader__.load({
 					h("span", { className: "dsg-rowname", title: labelOf(id) }, labelOf(id)),
 					h("button", {
 						type: "button",
-						className: "dsg-btn dsg-btn-ghost",
+						className: "dsg-btn dsg-btn-ghost dsg-icon",
 						title: tPage("up"),
 						disabled: index === 0,
 						onClick: () => {
@@ -2788,7 +2788,7 @@ window.__ModuleLoader__.load({
 					}, iconEl(ICON_UP, undefined, 2)),
 					h("button", {
 						type: "button",
-						className: "dsg-btn dsg-btn-ghost",
+						className: "dsg-btn dsg-btn-ghost dsg-icon",
 						title: tPage("down"),
 						disabled: index === coreList.length - 1,
 						onClick: () => {
@@ -2874,7 +2874,7 @@ window.__ModuleLoader__.load({
 								h("span", { className: "dsg-cardcount" }, tPage("itemsCount").replace("{n}", String(items.length))),
 								h("button", {
 									type: "button",
-									className: "dsg-btn dsg-btn-ghost",
+									className: "dsg-btn dsg-btn-ghost dsg-icon",
 									title: tPage("up"),
 									disabled: index === 0,
 									onClick: () => {
@@ -2884,7 +2884,7 @@ window.__ModuleLoader__.load({
 								}, iconEl(ICON_UP, undefined, 2)),
 								h("button", {
 									type: "button",
-									className: "dsg-btn dsg-btn-ghost",
+									className: "dsg-btn dsg-btn-ghost dsg-icon",
 									title: tPage("down"),
 									disabled: index === groups.length - 1,
 									onClick: () => {
