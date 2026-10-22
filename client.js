@@ -795,8 +795,10 @@ window.__ModuleLoader__.load({
 				".dsg-row[data-stale=\"1\"] .dsg-rowname{text-decoration:line-through}",
 				".dsg-rowgrip{flex:none;width:13px;color:var(--dsw-alias-label-tertiary,#aaa);cursor:grab;font-size:11px;text-align:center}",
 				".dsg-rowname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}",
-				".dsg-input{box-sizing:border-box;flex:1;min-width:0;height:34px;padding:0 11px;border-radius:8px;border:1px solid rgba(127,127,127,.26);background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:13.5px;transition:border-color .16s ease}",
-				".dsg-input:focus{outline:none;border-color:rgba(127,127,127,.5)}",
+				// 跟搜索框同一套反馈：悬浮加深边框，聚焦加深 + 灰色荧光圈
+				".dsg-input{box-sizing:border-box;flex:1;min-width:0;height:34px;padding:0 11px;border-radius:8px;border:1px solid rgba(127,127,127,.26);background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:13.5px;transition:border-color .16s ease,box-shadow .2s ease}",
+				".dsg-input:hover{border-color:rgba(127,127,127,.4)}",
+				".dsg-input:focus{outline:none;border-color:rgba(127,127,127,.62);box-shadow:0 0 0 3px rgba(127,127,127,.13)}",
 				// 「新建」得像个按钮：有边框、跟输入框同高。之前用 .dsg-btn（透明底）看着像超链接
 				".dsg-new{display:flex;gap:8px;align-items:center}",
 				".dsg-create{flex:none;height:34px;padding:0 15px;border-radius:8px;border:1px solid rgba(127,127,127,.3);background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:13px;font-weight:600;line-height:1;cursor:pointer;transition:border-color .15s ease,background .15s ease,transform .1s ease}",
