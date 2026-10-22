@@ -678,7 +678,7 @@ const rowHold = await page.evaluate(async () => {
 	}))
 	await new Promise((x) => setTimeout(x, 300))
 	const floating = document.querySelector('[data-dsg-floating="1"]') !== null
-	document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + 60, clientY: r.top + 16 }))
+	document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 9, clientX: r.left + 60, clientY: r.top + 16 }))
 	await new Promise((x) => setTimeout(x, 150))
 	return floating
 })
@@ -1271,6 +1271,81 @@ const reopenedSmall = await responsiveBox()
 check('小窗口关闭重开仍在可见范围内', insideViewport(reopenedSmall), JSON.stringify(reopenedSmall))
 await responsivePage.screenshot({ path: join(HERE, 'shot-responsive.png') })
 await responsiveContext.close()
+
+// ---- 15. 管理页真实鼠标排序、抓起、实时让位和跨组 ----
+const dragContext = await browser.newContext({ viewport: { width: 1200, height: 1200 } })
+const dragPage = await dragContext.newPage()
+dragPage.on('pageerror', (error) => errors.push(String(error)))
+await page.evaluate(() => fetch('/__reset'))
+await dragPage.addInitScript(() => {
+	if (localStorage.getItem('dsh.settingsGroups.v1')) return
+	localStorage.setItem('dsh.settingsGroups.v1', JSON.stringify({ v: 1, enabled: true, updatedAt: Date.now(),
+		groups: [{ id: 'ga', name: '模型接入', entries: ['dsh-read-aloud', 'dsh-commandcode'], open: true }, { id: 'gb', name: '界面外观', entries: ['dsh-meme'], open: true }],
+		hidden: ['plugins', 'agent-presets'], loose: [], coreOrder: ['account', 'general', 'models'],
+		topOrder: ['c:general', 'g:ga', 'c:models', 'g:gb', 'c:account'],
+	}))
+})
+await dragPage.goto(`http://127.0.0.1:${port}/harness.html`, { waitUntil: 'load' })
+await dragPage.waitForTimeout(600)
+const pinIds = () => dragPage.locator('.dsg-page [data-dsg-pin]').evaluateAll((nodes) => nodes.map((n) => n.dataset.dsgPin))
+const navCoreIds = () => dragPage.locator('nav [data-dsg-id]').evaluateAll((nodes) => nodes.filter((n) => ['general', 'models', 'account'].includes(n.dataset.dsgId) && n.style.display !== 'none').map((n) => n.dataset.dsgId))
+check('固定项管理列表跟随混排后的导航顺序', JSON.stringify(await pinIds()) === JSON.stringify(await navCoreIds()), JSON.stringify(await pinIds()))
+await dragPage.locator('[data-dsg-pin="general"] button[title="下移"]').click()
+await dragPage.waitForTimeout(350)
+check('固定项下移跳过中间分组并立即更新管理页', JSON.stringify(await pinIds()) === JSON.stringify(['models', 'general', 'account']), JSON.stringify(await pinIds()))
+await dragPage.locator('[data-dsg-pin="general"] button[title="上移"]').click()
+await dragPage.waitForTimeout(350)
+check('固定项上移后导航与管理页一致', JSON.stringify(await pinIds()) === JSON.stringify(['general', 'models', 'account']) && JSON.stringify(await pinIds()) === JSON.stringify(await navCoreIds()), JSON.stringify(await pinIds()))
+
+const startMouseRow = async (selector, hold = 280) => {
+	const row = dragPage.locator(selector)
+	await row.scrollIntoViewIfNeeded()
+	const r = await row.boundingBox()
+	await dragPage.mouse.move(r.x + 10, r.y + r.height / 2)
+	await dragPage.mouse.down()
+	await dragPage.waitForTimeout(hold)
+}
+await startMouseRow('[data-dsg-pin="account"]', 40)
+await dragPage.mouse.up()
+await dragPage.waitForTimeout(300)
+check('短按释放后不会延迟浮起', await dragPage.locator('[data-dsg-row-floating]').count() === 0)
+await startMouseRow('[data-dsg-pin="account"]')
+check('固定项长按后出现跟手浮层', await dragPage.locator('[data-dsg-row-floating]').count() === 1)
+const firstPin = await dragPage.locator('[data-dsg-pin="general"]').boundingBox()
+await dragPage.mouse.move(firstPin.x + 50, firstPin.y + 3, { steps: 4 })
+await dragPage.waitForTimeout(120)
+const livePins = await pinIds()
+check('固定项未松手就实时让位', livePins[0] === 'account', JSON.stringify(livePins))
+await dragPage.mouse.up()
+await dragPage.waitForTimeout(300)
+check('固定项拖完顺序与导航一致', JSON.stringify(await pinIds()) === JSON.stringify(await navCoreIds()), JSON.stringify(await pinIds()))
+
+const entryIds = (gid) => dragPage.locator(`.dsg-page [data-dsg-gid="${gid}"] [data-dsg-entry]`).evaluateAll((nodes) => nodes.map((n) => n.dataset.dsgEntry))
+check('组内条目关闭浏览器原生拖放', await dragPage.locator('[data-dsg-entry="dsh-read-aloud"]').evaluate((n) => n.draggable === false))
+await startMouseRow('[data-dsg-entry="dsh-read-aloud"]')
+check('组内条目也有独立跟手浮层', await dragPage.locator('[data-dsg-row-floating]').count() === 1 && await dragPage.locator('[data-dsg-floating].dsg-card').count() === 0)
+const commandRow = await dragPage.locator('[data-dsg-entry="dsh-commandcode"]').boundingBox()
+await dragPage.mouse.move(commandRow.x + 60, commandRow.y + commandRow.height - 3, { steps: 4 })
+await dragPage.waitForTimeout(120)
+check('组内条目未松手就完成排序', JSON.stringify(await entryIds('ga')) === JSON.stringify(['dsh-commandcode', 'dsh-read-aloud']), JSON.stringify(await entryIds('ga')))
+const sawRowFlip = await dragPage.evaluate(() => document.getAnimations().some((a) => a.id === 'dsg-page-reorder'))
+check('条目让位时有平滑移动动画', sawRowFlip)
+await dragPage.mouse.up()
+await dragPage.waitForTimeout(300)
+
+await startMouseRow('[data-dsg-entry="dsh-read-aloud"]')
+const targetHead = await dragPage.locator('[data-dsg-gid="gb"] .dsg-cardhead').boundingBox()
+await dragPage.mouse.move(targetHead.x + 45, targetHead.y + targetHead.height / 2, { steps: 4 })
+await dragPage.waitForTimeout(150)
+check('条目可抓起后直接拖到另一分组', (await entryIds('gb')).includes('dsh-read-aloud') && !(await entryIds('ga')).includes('dsh-read-aloud'), JSON.stringify(await entryIds('gb')))
+check('跨组重建后浮层仍跟随直到松手', await dragPage.locator('[data-dsg-row-floating]').count() === 1)
+await dragPage.mouse.up()
+await dragPage.waitForTimeout(400)
+check('松手后浮层与拖动占位全部清理', await dragPage.locator('[data-dsg-row-floating], [data-dsg-page-dragging]').count() === 0)
+await dragPage.reload({ waitUntil: 'load' })
+await dragPage.waitForTimeout(500)
+check('固定项和跨组排序刷新后保留', (await pinIds())[0] === 'account' && (await entryIds('gb')).includes('dsh-read-aloud'))
+await dragContext.close()
 
 check('全程无 JS 报错', errors.length === 0, errors.slice(0, 3).join(' | '))
 

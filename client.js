@@ -576,6 +576,7 @@ window.__ModuleLoader__.load({
 			/** 把顶层顺序写回配置。 */
 			const commitTopOrder = (list) => {
 				state.topOrder = list.map((x) => `${x.kind === "core" ? "c" : "g"}:${x.id}`);
+				state.coreOrder = list.filter((x) => x.kind === "core").map((x) => x.id);
 			};
 
 			/** 从所有分组、未分组、隐藏列表里摘掉某条目（三态互斥，换态先摘干净）。 */
@@ -768,7 +769,9 @@ window.__ModuleLoader__.load({
 				// 删除：平时红图标，悬浮翻成红底白字（主人明确要这个反色）
 				".dsg-danger:hover,.dsg-btn.dsg-danger:hover{border-color:var(--dsw-alias-state-error-primary,#e5484d);background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff}",
 				".dsg-rows{display:flex;flex-direction:column;gap:2px}",
-				".dsg-pin{cursor:grab;user-select:none}",
+				".dsg-pin,[data-dsg-entry]{cursor:grab;user-select:none}",
+				".dsg-rowgrip{touch-action:none}",
+				"[data-dsg-page-dragging=\"1\"]{opacity:.25}",
 				".dsg-pin:active{cursor:grabbing}",
 				".dsg-row{display:flex;align-items:center;gap:8px;min-height:34px;padding:4px 8px;border-radius:7px;color:var(--dsw-alias-label-primary,#333);transition:background .12s ease,opacity .12s ease}",
 				".dsg-row:hover{background:var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.1))}",
@@ -1405,110 +1408,129 @@ window.__ModuleLoader__.load({
 				});
 			};
 
-			/** 管理页「顶部固定项」那几行的拖拽：落点是同区的其他行。 */
-			const bindPinnedPointerDrag = (el, id) => {
-				if (el.dataset.dsgPtrBound === "1") return;
-				el.dataset.dsgPtrBound = "1";
-				let timer = 0;
-				let startX = 0;
-				let startY = 0;
-				let ghost = null;
-				let grabX = 0;
-				let grabY = 0;
-				let lastKey = "\u0000";
-				let dragging = false;
-
-				const cleanup = () => {
-					if (timer !== 0) {
+			// 管理页条目与固定项共用手指拖动；文档监听跟随指针，不受 React 跨组重建影响。
+			let pageRowDrag = null;
+			const bindPageRowDrag = (el, id, pinned = false) => {
+				if (pageRowDrag?.id === id && pageRowDrag.pinned === pinned && pageRowDrag.active) el.dataset.dsgPageDragging = "1";
+				if (el.dataset.dsgPagePtrBound === "1") return;
+				el.dataset.dsgPagePtrBound = "1";
+				el.addEventListener("pointerdown", (down) => {
+					if (down.button !== 0 || down.target.closest("button,input,a,select,textarea,.dsg-picker")) return;
+					pageRowDrag?.cleanup();
+					down.stopPropagation();
+					const startX = down.clientX, startY = down.clientY;
+					const grip = down.target.closest(".dsg-rowgrip") !== null;
+					let timer = 0, ghost = null, grabX = 0, grabY = 0, lastKey = "";
+					let scrollHost = el.parentElement, scrollFrame = null;
+					let point = { x: startX, y: startY };
+					while (scrollHost && !(scrollHost.scrollHeight > scrollHost.clientHeight && /auto|scroll/.test(getComputedStyle(scrollHost).overflowY))) scrollHost = scrollHost.parentElement;
+					const current = { id, pinned, active: false, cleanup: null };
+					const cleanup = () => {
 						clearTimeout(timer);
-						timer = 0;
-					}
-					if (ghost !== null) {
-						ghost.remove();
-						ghost = null;
-					}
-					el.style.opacity = "";
-					document.body.style.cursor = "";
-					document.removeEventListener("pointermove", onMove, true);
-					document.removeEventListener("pointerup", onUp, true);
-					document.removeEventListener("pointercancel", onUp, true);
-					dragging = false;
-				};
-
-				const hitAt = (x, y) => {
-					const raw = document.elementFromPoint(x, y);
-					const row = raw?.closest?.(".dsg-row") ?? null;
-					if (row === null || row === el) return null;
-					const other = row.dataset.dsgPin;
-					if (other === undefined) return null;
-					const rect = row.getBoundingClientRect();
-					return { coreId: other, after: y > rect.top + rect.height / 2 };
-				};
-
-				const onMove = (e) => {
-					if (!dragging) {
-						if (Math.abs(e.clientX - startX) > 6 || Math.abs(e.clientY - startY) > 6) {
-							if (timer !== 0) {
-								clearTimeout(timer);
-								timer = 0;
-							}
-						}
-						return;
-					}
-					e.preventDefault();
-					if (ghost !== null) {
-						ghost.style.transform = `translate3d(${Math.round(e.clientX - grabX)}px, ${Math.round(e.clientY - grabY)}px, 0) scale(1.01)`;
-					}
-					const hit = hitAt(e.clientX, e.clientY);
-					const key = hit === null ? "" : `${hit.coreId}:${hit.after}`;
-					if (key === lastKey) return;
-					lastKey = key;
-					if (hit === null) return;
-					moveCoreTo(id, hit);
-					notifyPage();
-				};
-
-				const onUp = () => cleanup();
-
-				el.addEventListener("pointerdown", (e) => {
-					if (e.button !== 0) return;
-					if (e.target.closest("button, input") !== null) return;
-					startX = e.clientX;
-					startY = e.clientY;
-					if (timer !== 0) clearTimeout(timer);
-					timer = setTimeout(() => {
-						timer = 0;
-						dragging = true;
+						if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
+						ghost?.remove();
+						for (const row of document.querySelectorAll("[data-dsg-page-dragging]")) delete row.dataset.dsgPageDragging;
+						document.body.style.cursor = "";
+						document.removeEventListener("pointermove", move, true);
+						document.removeEventListener("pointerup", up, true);
+						document.removeEventListener("pointercancel", up, true);
+						window.removeEventListener("blur", cleanup);
+						if (pageRowDrag === current) pageRowDrag = null;
+					};
+					current.cleanup = cleanup;
+					pageRowDrag = current;
+					const lift = () => {
+						clearTimeout(timer);
+						if (current.active || !el.isConnected) return;
+						current.active = true;
 						const rect = el.getBoundingClientRect();
-						grabX = startX - rect.left;
-						grabY = startY - rect.top;
+						grabX = startX - rect.left; grabY = startY - rect.top;
 						ghost = el.cloneNode(true);
-						Object.assign(ghost.style, {
-							position: "fixed",
-							left: "0px",
-							top: "0px",
-							width: `${Math.round(rect.width)}px`,
-							height: `${Math.round(rect.height)}px`,
-							margin: "0",
-							pointerEvents: "none",
-							zIndex: "2147483000",
-							transform: `translate3d(${Math.round(rect.left)}px, ${Math.round(rect.top)}px, 0) scale(1.01)`,
-							transformOrigin: "center center",
-							boxShadow: "0 8px 22px rgba(0,0,0,.16)",
-							borderRadius: "8px",
-							background: "var(--dsw-alias-bg-layer-1, #fff)",
-							transition: "none",
-						});
+						ghost.removeAttribute("id");
+						for (const child of ghost.querySelectorAll("[id]")) child.removeAttribute("id");
+						ghost.dataset.dsgRowFloating = "1";
+						ghost.setAttribute("aria-hidden", "true");
+						ghost.inert = true;
+						Object.assign(ghost.style, { position: "fixed", left: "0px", top: "0px", width: `${rect.width}px`, height: `${rect.height}px`, margin: "0", pointerEvents: "none", zIndex: "2147483000", transformOrigin: "center", boxShadow: "0 8px 22px rgba(0,0,0,.16)", borderRadius: "8px", background: "var(--dsw-alias-bg-layer-1,#fff)", transition: "none" });
 						document.body.appendChild(ghost);
-						el.style.opacity = "0.25";
+						el.dataset.dsgPageDragging = "1";
 						document.body.style.cursor = "grabbing";
-						lastKey = "\u0000";
-						document.addEventListener("pointermove", onMove, true);
-						document.addEventListener("pointerup", onUp, true);
-						document.addEventListener("pointercancel", onUp, true);
-					}, 250);
+					};
+					const moveAt = (x, y) => {
+						if (!ghost) return;
+						ghost.style.transform = `translate3d(${Math.round(x - grabX)}px,${Math.round(y - grabY)}px,0) scale(1.01)`;
+						const raw = document.elementFromPoint(x, y);
+						if (!raw?.closest(".dsg-page")) return;
+						const row = raw.closest("[data-dsg-pin], [data-dsg-entry]");
+						let key = "", action = null;
+						if (pinned) {
+							const other = row?.dataset.dsgPin;
+							if (other && other !== id) {
+								const r = row.getBoundingClientRect(), after = y > r.top + r.height / 2;
+								key = `p:${other}:${after}`;
+								action = () => moveCoreTo(id, { coreId: other, after });
+							}
+						} else {
+							const other = row?.dataset.dsgEntry;
+							let where = null, hide = false;
+							if (other && other !== id) {
+								const r = row.getBoundingClientRect(), after = y > r.top + r.height / 2;
+								const gid = groupOf(other)?.id;
+								where = { gid, anchorGid: gid, [after ? "after" : "before"]: other };
+								key = `r:${other}:${after}`;
+							} else if (!row) {
+								const card = raw.closest("[data-dsg-gid], [data-dsg-bucket]");
+								if (card?.dataset.dsgGid) { where = { gid: card.dataset.dsgGid, anchorGid: card.dataset.dsgGid }; key = `g:${where.gid}`; }
+								else if (card?.dataset.dsgBucket === "loose") { where = {}; key = "loose"; }
+								else if (card?.dataset.dsgBucket === "hidden") { hide = true; key = "hidden"; }
+							}
+							if (where || hide) action = () => {
+								const before = snapshotPage();
+								if (hide) hideEntry(id); else place(id, where);
+								save(); flipPage(before);
+							};
+						}
+						if (key === lastKey) return;
+						lastKey = key;
+						if (action) { action(); sync(); notifyPage(); }
+					};
+					const scroll = () => {
+						scrollFrame = null;
+						if (!current.active || !scrollHost) return;
+						const rect = scrollHost.getBoundingClientRect();
+						const delta = point.y < rect.top + 32 ? -12 : point.y > rect.bottom - 32 ? 12 : 0;
+						const before = scrollHost.scrollTop;
+						scrollHost.scrollTop += delta;
+						if (scrollHost.scrollTop !== before) {
+							moveAt(point.x, point.y);
+							scrollFrame = requestAnimationFrame(scroll);
+						}
+					};
+					const move = (event) => {
+						if (event.pointerId !== down.pointerId) return;
+						point = { x: event.clientX, y: event.clientY };
+						if (!current.active && Math.hypot(point.x - startX, point.y - startY) > 6) {
+							if (down.pointerType === "touch" && !grip) { cleanup(); return; }
+							lift();
+						}
+						if (!current.active) return;
+						event.preventDefault();
+						moveAt(point.x, point.y);
+						if (scrollFrame === null) scrollFrame = requestAnimationFrame(scroll);
+					};
+					const up = (event) => {
+						if (event.pointerId !== down.pointerId) return;
+						if (current.active) event.preventDefault();
+						cleanup();
+					};
+					document.addEventListener("pointermove", move, { capture: true, passive: false });
+					document.addEventListener("pointerup", up, true);
+					document.addEventListener("pointercancel", up, true);
+					window.addEventListener("blur", cleanup);
+					timer = setTimeout(() => { lift(); moveAt(point.x, point.y); }, 250);
 				});
 			};
+			const bindPinnedPointerDrag = (el, id) => bindPageRowDrag(el, id, true);
 
 			/**
 			 * 设置条目（导航里的小行）的手指拖拽。
@@ -2421,16 +2443,24 @@ window.__ModuleLoader__.load({
 			 */
 			const flipPage = (before) => {
 				const apply = () => {
+					const moves = new Map();
 					for (const [el, oldRect] of before) {
 						if (!el.isConnected) continue;
 						const now = el.getBoundingClientRect();
-						const dx = oldRect.left - now.left;
-						const dy = oldRect.top - now.top;
+						moves.set(el, { dx: oldRect.left - now.left, dy: oldRect.top - now.top });
+					}
+					for (const [el, delta] of moves) {
+						if (el.dataset.dsgPageDragging === "1") continue;
+						// 行所在的卡片也会让位；减去父级位移，避免同一距离播两遍。
+						const parent = el.classList.contains("dsg-row") ? moves.get(el.closest(".dsg-card")) : null;
+						const dx = delta.dx - (parent?.dx ?? 0);
+						const dy = delta.dy - (parent?.dy ?? 0);
 						if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
 						try {
+							for (const motion of el.getAnimations()) if (motion.id === "dsg-page-reorder") motion.cancel();
 							el.animate(
 								[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
-								{ duration: 240, easing: "cubic-bezier(.2,.7,.3,1)" },
+								{ id: "dsg-page-reorder", duration: 240, easing: "cubic-bezier(.2,.7,.3,1)" },
 							);
 						} catch (_ignored) {
 							/* 不支持 WAAPI 就直接跳 */
@@ -2474,14 +2504,9 @@ window.__ModuleLoader__.load({
 			};
 
 			const moveCore = (id, delta) => {
-				const list = resolvedTopOrder();
-				const idx = list.findIndex((x) => x.kind === "core" && x.id === id);
-				const to = idx + delta;
-				if (idx < 0 || to < 0 || to >= list.length) return;
-				const [moved] = list.splice(idx, 1);
-				list.splice(to, 0, moved);
-				commitTopOrder(list);
-				save();
+				const core = resolvedTopOrder().filter((x) => x.kind === "core");
+				const target = core[core.findIndex((x) => x.id === id) + delta];
+				if (target !== undefined) moveCoreTo(id, { coreId: target.id, after: delta > 0 });
 			};
 
 			/** 组内上移/下移 */
@@ -2517,7 +2542,7 @@ window.__ModuleLoader__.load({
 				React.useEffect(() => {
 					const bump = () => setTick((v) => v + 1);
 					pageListeners.add(bump);
-					return () => pageListeners.delete(bump);
+					return () => { pageListeners.delete(bump); pageRowDrag?.cleanup(); };
 				}, []);
 
 				React.useEffect(() => {
@@ -2532,7 +2557,7 @@ window.__ModuleLoader__.load({
 					.filter((x) => x.kind === "group")
 					.map((x) => groupById(x.id))
 					.filter((g) => g !== undefined);
-				const coreList = coreIds();
+				const coreList = resolvedTopOrder().filter((x) => x.kind === "core").map((x) => x.id);
 				const loose = looseIds();
 				// 不按台账过滤：卸载的插件也要留在清单里，否则用户既看不到也删不掉，
 				// 重装时又莫名其妙变成隐藏状态（"幽灵隐藏项"）。
@@ -2571,7 +2596,9 @@ window.__ModuleLoader__.load({
 				const entryRow = (id, gid) => h("div", {
 					key: `r-${gid ?? "loose"}-${id}`,
 					className: "dsg-row",
-					draggable: true,
+					draggable: false,
+					"data-dsg-entry": id,
+					ref: (el) => { if (el !== null) bindPageRowDrag(el, id); },
 					"data-dragging": dragId === id ? "1" : undefined,
 					"data-over": dropTarget !== null && dropTarget.startsWith(`row:${id}:`) ? dropTarget.split(":").at(-1) : undefined,
 					onDragStart: (e) => {
@@ -2813,6 +2840,7 @@ window.__ModuleLoader__.load({
 					return h("div", {
 						key: g.id,
 						className: "dsg-card",
+						"data-dsg-gid": g.id,
 						// 卡片自己走「长按浮起」那套；这里的 ref 只负责挂上监听
 						ref: (el) => {
 							if (el !== null) bindCardPointerDrag(el, g.id);
@@ -3075,6 +3103,7 @@ window.__ModuleLoader__.load({
 						),
 						h("div", {
 							className: "dsg-card",
+							"data-dsg-bucket": "loose",
 							"data-over": dropTarget === "__loose" ? "1" : undefined,
 						},
 						loose.length === 0
@@ -3120,6 +3149,7 @@ window.__ModuleLoader__.load({
 						),
 						h("div", {
 							className: "dsg-card",
+							"data-dsg-bucket": "hidden",
 							"data-over": dropTarget === "__hidden" ? "1" : undefined,
 							title: tPage("hiddenDropHint"),
 						},
