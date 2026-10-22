@@ -1220,6 +1220,58 @@ check('减少动态效果时立即完成并清理', reduced)
 await page.emulateMedia({ reducedMotion: 'no-preference' })
 await cdp.detach()
 
+// ---- 14. 大尺寸记忆在小窗口中打开、实时缩窗与恢复 ----
+// 与真实宿主一样用 overlay 居中；让旧尺寸和旧位移同时越界。
+const responsiveContext = await browser.newContext({ viewport: { width: 760, height: 560 } })
+const responsivePage = await responsiveContext.newPage()
+responsivePage.on('pageerror', (error) => errors.push(String(error)))
+const responsiveHarness = (await readFile(join(HERE, 'harness.html'), 'utf8')).replace('</style>', `
+#root{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+#root>[role="dialog"]{position:relative;pointer-events:auto}
+</style>`)
+await responsivePage.route('**/harness.html', (route) => route.fulfill({ contentType: 'text/html', body: responsiveHarness }))
+await responsivePage.addInitScript(() => localStorage.setItem('dsh.settingsPanelTweak.v1', JSON.stringify({ panelW: 1720, panelH: 1200, navW: 520, dx: 600, dy: -360 })))
+await responsivePage.goto(`http://127.0.0.1:${port}/harness.html`, { waitUntil: 'load' })
+await responsivePage.waitForTimeout(450)
+const responsiveBox = () => responsivePage.evaluate(() => {
+	const dialog = document.querySelector('[data-shortcut-modal="settings"]')
+	const nav = dialog.querySelector(':scope > nav')
+	let content = nav.nextElementSibling
+	while (content?.classList.contains('dsh-ptweak-split')) content = content.nextElementSibling
+	const r = dialog.getBoundingClientRect()
+	return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height,
+		vw: innerWidth, vh: innerHeight, navW: nav.getBoundingClientRect().width, contentW: content.getBoundingClientRect().width,
+		pref: JSON.parse(localStorage.getItem('dsh.settingsPanelTweak.v1')) }
+})
+const insideViewport = (r) => r.left >= 7 && r.top >= 7 && r.right <= r.vw - 7 && r.bottom <= r.vh - 7
+const smallOpen = await responsiveBox()
+check('大尺寸和偏移记忆在小窗口打开时不越界', insideViewport(smallOpen), JSON.stringify(smallOpen))
+check('侧栏缩回并给正文留出空间', smallOpen.contentW >= 259, `${smallOpen.navW}px / ${smallOpen.contentW}px`)
+check('小窗口侧栏不会占去大半个面板', smallOpen.navW <= smallOpen.width * .4, `${smallOpen.navW}px / ${smallOpen.width}px`)
+await responsivePage.setViewportSize({ width: 500, height: 340 })
+await responsivePage.waitForTimeout(150)
+const liveShrink = await responsiveBox()
+check('面板开着缩小窗口也会自动适配', insideViewport(liveShrink), JSON.stringify(liveShrink))
+await responsivePage.setViewportSize({ width: 320, height: 260 })
+await responsivePage.waitForTimeout(150)
+const tinyWindow = await responsiveBox()
+check('窗口小于原最小尺寸时仍能完整显示面板', insideViewport(tinyWindow) && tinyWindow.contentW > 0, JSON.stringify(tinyWindow))
+await responsivePage.setViewportSize({ width: 2000, height: 1500 })
+await responsivePage.waitForTimeout(150)
+const largeAgain = await responsiveBox()
+check('回到大窗口恢复原有尺寸和侧栏偏好', insideViewport(largeAgain) && Math.abs(largeAgain.width - 1720) < 1 && Math.abs(largeAgain.height - 1200) < 1 && Math.abs(largeAgain.navW - 520) < 1, JSON.stringify(largeAgain))
+check('临时适配不会覆盖原有记忆', JSON.stringify(largeAgain.pref) === JSON.stringify({ panelW: 1720, panelH: 1200, navW: 520, dx: 600, dy: -360 }), JSON.stringify(largeAgain.pref))
+await responsivePage.setViewportSize({ width: 760, height: 560 })
+await responsivePage.waitForTimeout(150)
+await responsivePage.evaluate(() => document.getElementById('btn-open').click())
+await responsivePage.waitForTimeout(450)
+await responsivePage.evaluate(() => document.getElementById('btn-open').click())
+await responsivePage.waitForTimeout(450)
+const reopenedSmall = await responsiveBox()
+check('小窗口关闭重开仍在可见范围内', insideViewport(reopenedSmall), JSON.stringify(reopenedSmall))
+await responsivePage.screenshot({ path: join(HERE, 'shot-responsive.png') })
+await responsiveContext.close()
+
 check('全程无 JS 报错', errors.length === 0, errors.slice(0, 3).join(' | '))
 
 await page.screenshot({ path: join(HERE, 'shot-final.png'), fullPage: false })

@@ -3212,6 +3212,15 @@ window.__ModuleLoader__.load({
 			const PT_KEY = "dsh.settingsPanelTweak.v1";
 			const PT_MIN_NAV = 150;
 			const PT_MIN_CONTENT = 260;
+			const ptFitters = new WeakMap();
+			const ptViewport = () => {
+				const view = window.visualViewport;
+				return { x: view?.offsetLeft ?? 0, y: view?.offsetTop ?? 0, w: view?.width ?? window.innerWidth, h: view?.height ?? window.innerHeight };
+			};
+			const ptOffset = (panel) => {
+				const match = /translate3d\((-?[\d.]+)px,\s*(-?[\d.]+)px/.exec(panel.style.transform || "");
+				return { x: match ? Number(match[1]) : 0, y: match ? Number(match[2]) : 0 };
+			};
 			// 这些位置按下时不算"拖面板"：除了原生控件，还包括管理页里自己画的可拖区域 ——
 		// 不然按住卡片头会把整个面板跟着拖走。
 		const PT_HIT = "button,a,input,select,textarea,[role='button'],.dsg-cardhead,.dsg-row,.dsg-picker";
@@ -3235,6 +3244,20 @@ window.__ModuleLoader__.load({
 			const ptNum = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 			const ptClamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 			const ptTransform = (x, y) => `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+			// 按实际布局位置纠偏，兼容居中 overlay；入场 scale 不计入真实边界。
+			const ptFitPosition = (panel, x, y) => {
+				const view = ptViewport();
+				const rect = panel.getBoundingClientRect();
+				const current = ptOffset(panel);
+				const w = panel.offsetWidth;
+				const h = panel.offsetHeight;
+				// 独立 scale 属性也会缩放 translate3d 的位移，先还原未平移的布局原点。
+				const left = rect.left - (w - rect.width) / 2 - current.x * (w ? rect.width / w : 1);
+				const top = rect.top - (h - rect.height) / 2 - current.y * (h ? rect.height / h : 1);
+				const dx = ptClamp(x, view.x + 8 - left, view.x + view.w - 8 - left - w);
+				const dy = ptClamp(y, view.y + 8 - top, view.y + view.h - 8 - top - h);
+				panel.style.transform = dx === 0 && dy === 0 ? "" : ptTransform(dx, dy);
+			};
 
 			const ptStyle = document.createElement("style");
 			ptStyle.dataset.dshPtweak = "1";
@@ -3259,6 +3282,8 @@ window.__ModuleLoader__.load({
 				// —— 那个位置归拖拽用（inline transform 存着位移）。
 				"@keyframes dsgPanelIn{from{opacity:0;scale:.965}to{opacity:1;scale:1}}",
 				`${PT_SEL}{animation:dsgPanelIn .24s cubic-bezier(.2,.7,.3,1)}`,
+				`${PT_SEL}[data-dsh-ptweak="1"]{box-sizing:border-box;min-width:min(440px,calc(100vw - 16px));min-height:min(300px,calc(100vh - 16px))}`,
+				`${PT_SEL}[data-dsh-ptweak="1"] > nav ~ div:not(.dsh-ptweak-split):not(.dsh-ptweak-rz){min-width:0}`,
 				// 出：宿主直接把 dialog 卸掉，我们来不及在它身上播动画。
 				// 所以移除瞬间留一张同尺寸快照在原地淡出，人眼看就是面板在退场。
 				// 退场分两层：先让右侧内容淡掉（像是"白掉"），整个框再收走。
@@ -3470,13 +3495,12 @@ window.__ModuleLoader__.load({
 					if (ev.target.closest(PT_HIT) !== null) return;
 					ev.preventDefault();
 					header.classList.add("dsh-ptweak-header");
-					const cur = ptRead();
-					const baseX = ptNum(cur.dx) ?? 0;
-					const baseY = ptNum(cur.dy) ?? 0;
+					// 小窗口里应用的位移可能已被校正，不能拿未裁剪的旧记忆作拖动起点。
+					const { x: baseX, y: baseY } = ptOffset(panel);
 					const startX = ev.clientX;
 					const startY = ev.clientY;
 					const move = (e) => {
-						panel.style.transform = ptTransform(baseX + (e.clientX - startX), baseY + (e.clientY - startY));
+						ptFitPosition(panel, baseX + (e.clientX - startX), baseY + (e.clientY - startY));
 					};
 					const up = () => {
 						panel.removeEventListener("pointermove", move);
@@ -3493,13 +3517,28 @@ window.__ModuleLoader__.load({
 				// ③ 四边 + 四角缩放；默认比宿主大一整圈
 				const PT_DEF_W = "min(1080px, calc(100vw - 64px))";
 				const PT_DEF_H = "min(920px, calc(100vh - 64px))";
-				const savedW = ptNum(saved.panelW);
-				const savedH = ptNum(saved.panelH);
-				// 宿主把尺寸写成 min()，不改 max-* 会夹住我们设的像素值
-				panel.style.maxWidth = "none";
-				panel.style.maxHeight = "none";
-				panel.style.width = savedW !== null ? `${Math.max(440, savedW)}px` : PT_DEF_W;
-				panel.style.height = savedH !== null ? `${Math.max(300, savedH)}px` : PT_DEF_H;
+				const fitPanel = () => {
+					const view = ptViewport();
+					const maxW = Math.max(1, Math.floor(view.w - 16));
+					const maxH = Math.max(1, Math.floor(view.h - 16));
+					const pref = ptRead();
+					const prefW = ptNum(pref.panelW);
+					const prefH = ptNum(pref.panelH);
+					panel.style.transition = "";
+					panel.style.maxWidth = `${maxW}px`;
+					panel.style.maxHeight = `${maxH}px`;
+					panel.style.width = prefW === null ? PT_DEF_W : `${ptClamp(prefW, Math.min(440, maxW), maxW)}px`;
+					panel.style.height = prefH === null ? PT_DEF_H : `${ptClamp(prefH, Math.min(300, maxH), maxH)}px`;
+					// 侧栏也要给正文留位置；只改本次显示，不把大窗口偏好写小。
+					nav.style.width = ptNum(pref.navW) === null ? "" : `${ptClamp(pref.navW, PT_MIN_NAV, 520)}px`;
+					const available = Math.max(0, panel.clientWidth - 6);
+					const navMax = Math.max(0, Math.min(available * .38, available - Math.min(PT_MIN_CONTENT, available * .55)) - navPad());
+					if (navStyleW() > navMax) setNavStyleW(navMax);
+					ptFitPosition(panel, ptNum(pref.dx) ?? 0, ptNum(pref.dy) ?? 0);
+					ptLastRect = panel.getBoundingClientRect();
+				};
+				ptFitters.set(panel, fitPanel);
+				fitPanel();
 
 				const resetBox = () => {
 					panel.style.transition = "width .3s cubic-bezier(.2,.7,.3,1), height .3s cubic-bezier(.2,.7,.3,1)";
@@ -3534,27 +3573,22 @@ window.__ModuleLoader__.load({
 							/* noop */
 						}
 						const rect = panel.getBoundingClientRect();
-						const cur = ptRead();
-						const baseDx = ptNum(cur.dx) ?? 0;
-						const baseDy = ptNum(cur.dy) ?? 0;
+						const { x: baseDx, y: baseDy } = ptOffset(panel);
 						const startX = ev.clientX;
 						const startY = ev.clientY;
-						const maxW = Math.max(440, window.innerWidth - 16);
-						const maxH = Math.max(300, window.innerHeight - 16);
+						const view = ptViewport();
+						const maxW = Math.max(1, view.w - 16);
+						const maxH = Math.max(1, view.h - 16);
 						const move = (e) => {
-							const w = sx ? ptClamp(rect.width + sx * (e.clientX - startX), 440, maxW) : rect.width;
-							const h = sy ? ptClamp(rect.height + sy * (e.clientY - startY), 300, maxH) : rect.height;
+							const w = sx ? ptClamp(rect.width + sx * (e.clientX - startX), Math.min(440, maxW), maxW) : rect.width;
+							const h = sy ? ptClamp(rect.height + sy * (e.clientY - startY), Math.min(300, maxH), maxH) : rect.height;
 							panel.style.width = `${Math.round(w)}px`;
 							panel.style.height = `${Math.round(h)}px`;
 							// 面板在 overlay 里是 flex 居中的：改尺寸会左右/上下各长一半，
 							// 把平移补回一半，被拖的那条边才会咬住鼠标（否则手感像从中心缩放）
-							let ndx = sx ? baseDx + (sx * (w - rect.width)) / 2 : baseDx;
-							let ndy = sy ? baseDy + (sy * (h - rect.height)) / 2 : baseDy;
-							const halfW = Math.max(0, (window.innerWidth - w) / 2);
-							const halfH = Math.max(0, (window.innerHeight - h) / 2);
-							ndx = ptClamp(ndx, -halfW, halfW);
-							ndy = ptClamp(ndy, -halfH, halfH);
-							panel.style.transform = ptTransform(ndx, ndy);
+							const ndx = sx ? baseDx + (sx * (w - rect.width)) / 2 : baseDx;
+							const ndy = sy ? baseDy + (sy * (h - rect.height)) / 2 : baseDy;
+							ptFitPosition(panel, ndx, ndy);
 						};
 						const up = () => {
 							handle.removeEventListener("pointermove", move);
@@ -3663,6 +3697,17 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => {
 				ptStyle.textContent = PT_CSS;
 				document.head.appendChild(ptStyle);
+				let resizeFrame = null;
+				const fitViewport = () => {
+					if (resizeFrame !== null) return;
+					resizeFrame = requestAnimationFrame(() => {
+						resizeFrame = null;
+						const panel = document.querySelector(PT_SEL);
+						if (panel !== null) ptFitters.get(panel)?.();
+					});
+				};
+				window.addEventListener("resize", fitViewport);
+				window.visualViewport?.addEventListener("resize", fitViewport);
 				const scan = () => {
 					const panel = document.querySelector(PT_SEL);
 					if (panel !== null) ptDecorate(panel);
@@ -3670,6 +3715,9 @@ window.__ModuleLoader__.load({
 				scan();
 				ptObserver.observe(document.body, { childList: true, subtree: true });
 				return () => {
+					window.removeEventListener("resize", fitViewport);
+					window.visualViewport?.removeEventListener("resize", fitViewport);
+					if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
 					ptObserver.disconnect();
 					if (ptWatcher !== null) {
 						ptWatcher.disconnect();

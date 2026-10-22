@@ -45,6 +45,10 @@ node scripts/profile.mjs uninstall --profile desktop
 
 装完**重启 DSH**（宿主端要加载新插件）。只改 `client.js` 的话，窗口里 `Ctrl+R` 就够。
 
+### 0.1.6：大尺寸记忆适配小窗口
+
+设置面板打开时会按当前窗口裁剪记住的宽高、侧栏宽度与位置，避免在小窗口里超出屏幕；面板开着缩小窗口也会自动适配。临时适配不会覆盖原来的尺寸和位置偏好，回到大窗口会恢复原有大小。拖动从当前显示位置开始，较窄窗口下也允许面板缩到原最小尺寸以下。
+
 ### 0.1.5：恢复原有设置背景
 
 撤回 0.1.4 的毛玻璃试用效果，设置面板、导航和分组卡片恢复原有背景；保留按钮圆角边框、按列对齐及展开 / 收起动画修复。
@@ -131,7 +135,7 @@ node scripts/profile.mjs uninstall --profile desktop
 
 ```sh
 npm i -D playwright react@18 react-dom@18   # 只有跑测试才需要
-node test/run.mjs            # 真 Chromium 跑 124 项断言
+node test/run.mjs            # 真 Chromium 跑 132 项断言
 node test/host.mjs           # 宿主端路由单测（10 项，不启 DSH）
 node test/record.mjs         # 重新录 README 的动图（要 ffmpeg）
 ```
