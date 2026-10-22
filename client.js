@@ -742,6 +742,9 @@ window.__ModuleLoader__.load({
 				".dsg-card[data-dragging=\"1\"]{cursor:grabbing;position:relative;z-index:3;transform:scale(1.014) rotate(-.18deg);box-shadow:0 4px 10px rgba(0,0,0,.09),0 20px 44px -14px rgba(0,0,0,.22);opacity:.94}",
 				".dsg-card[data-insert=\"before\"]{box-shadow:inset 0 3px 0 -1px var(--dsg-accent,#5b5bf6),0 1px 2px rgba(0,0,0,.05),0 6px 20px -6px rgba(0,0,0,.1)}",
 				".dsg-card[data-insert=\"after\"]{box-shadow:inset 0 -3px 0 -1px var(--dsg-accent,#5b5bf6),0 1px 2px rgba(0,0,0,.05),0 6px 20px -6px rgba(0,0,0,.1)}",
+				// 卡片之间单独拉开：只影响"卡→卡"，别把"标题→第一张卡"也一起推远
+				".dsg-section > .dsg-card{margin-bottom:10px}",
+				".dsg-section > .dsg-card:last-child{margin-bottom:0}",
 				".dsg-cardhead{display:flex;align-items:center;gap:8px;min-width:0}",
 				".dsg-cardname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-cardcount{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary,#999)}",
@@ -789,7 +792,7 @@ window.__ModuleLoader__.load({
 				".dsg-switch[data-on=\"1\"]{background:var(--dsg-accent,#5b5bf6)}",
 				".dsg-knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .2s cubic-bezier(.22,.8,.28,1)}",
 				".dsg-switch[data-on=\"1\"] .dsg-knob{transform:translateX(18px)}",
-				".dsg-section{display:flex;flex-direction:column;gap:6px}",
+				".dsg-section{display:flex;flex-direction:column;gap:8px}",
 				".dsg-sectionhead{display:flex;align-items:baseline;gap:8px}",
 				".dsg-sectiontitle{font-size:12.5px;font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-secondary,#888);text-transform:uppercase}",
 				".dsg-empty{margin:0;color:var(--dsw-alias-label-secondary,#999);font-size:12px;line-height:18px}",
