@@ -93,7 +93,6 @@ window.__ModuleLoader__.load({
 				resetDone: "已重置。",
 				dragRowHint: "拖动这一行到某个分组可以归组；在组内拖动可以排序。",
 				coreHint: "「{name}」等宿主官方入口固定在最上面，不参与分组。",
-				panelHint: "设置面板本身也一并接管了：右缘分隔条拖宽度、拖标题栏移动面板、四边四角缩放，双击任一处复位 —— 不用再装 dsh-settings-panel-tweak 补丁。",
 				legacyWarn: "检测到旧插件 dsh-settings-nav-organizer 仍在运行。两者都会改写设置导航，本插件已自动退让 —— 请先在「插件管理」里禁用它。",
 				noEntries: "等待设置面板打开…",
 				itemsCount: "{n} 项",
@@ -162,7 +161,6 @@ window.__ModuleLoader__.load({
 				resetDone: "Reset.",
 				dragRowHint: "Drag a row onto a group to file it; drag inside a group to reorder.",
 				coreHint: "Host entries such as “{name}” stay pinned at the top and never join a group.",
-				panelHint: "The settings panel itself is covered too: drag its right edge for width, its header to move it, or any edge/corner to resize. Double-click to reset — no dsh-settings-panel-tweak patch needed.",
 				legacyWarn: "The legacy plugin dsh-settings-nav-organizer is still running. Both rewrite the settings nav, so this plugin backed off — disable it in Plugins first.",
 				noEntries: "Waiting for the settings panel…",
 				itemsCount: "{n} items",
@@ -2054,7 +2052,6 @@ window.__ModuleLoader__.load({
 							),
 						),
 					),
-					h("p", { className: "dsg-hint" }, tPage("panelHint")),
 					h("p", { className: "dsg-hint" }, tPage("coreHint").replace("{name}", coreNames())),
 					h("div", { className: "dsg-new" },
 						h("input", {
