@@ -779,6 +779,8 @@ window.__ModuleLoader__.load({
 				// 删除：平时红图标，悬浮翻成红底白字（主人明确要这个反色）
 				".dsg-danger:hover,.dsg-btn.dsg-danger:hover{background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff}",
 				".dsg-rows{display:flex;flex-direction:column;gap:2px}",
+				".dsg-pin{cursor:grab;user-select:none}",
+				".dsg-pin:active{cursor:grabbing}",
 				".dsg-row{display:flex;align-items:center;gap:8px;min-height:34px;padding:4px 8px;border-radius:7px;color:var(--dsw-alias-label-primary,#333);transition:background .12s ease,opacity .12s ease}",
 				".dsg-row:hover{background:var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.1))}",
 				".dsg-row[data-dragging=\"1\"]{opacity:.35}",
@@ -1268,6 +1270,236 @@ window.__ModuleLoader__.load({
 							transition: "none",
 						});
 						ghost.dataset.dsgFloating = "1";
+						document.body.appendChild(ghost);
+						el.style.opacity = "0.25";
+						document.body.style.cursor = "grabbing";
+						lastKey = "\u0000";
+						document.addEventListener("pointermove", onMove, true);
+						document.addEventListener("pointerup", onUp, true);
+						document.addEventListener("pointercancel", onUp, true);
+					}, 250);
+				});
+			};
+
+			/** 顶部固定项的手指拖拽：跟分组标签同一套，只是被拖的是一整行按钮。 */
+			const bindCorePointerDrag = (el, id) => {
+				if (el.dataset.dsgPtrBound === "1") return;
+				el.dataset.dsgPtrBound = "1";
+				let timer = 0;
+				let startX = 0;
+				let startY = 0;
+				let ghost = null;
+				let grabX = 0;
+				let grabY = 0;
+				let lastKey = "\u0000";
+				let dragging = false;
+
+				const cleanup = () => {
+					if (timer !== 0) {
+						clearTimeout(timer);
+						timer = 0;
+					}
+					if (ghost !== null) {
+						ghost.remove();
+						ghost = null;
+					}
+					el.style.opacity = "";
+					document.body.style.cursor = "";
+					document.removeEventListener("pointermove", onMove, true);
+					document.removeEventListener("pointerup", onUp, true);
+					document.removeEventListener("pointercancel", onUp, true);
+					document.removeEventListener("pointerup", cancelTimer, true);
+					clearDropMarks();
+					dragging = false;
+				};
+
+				function cancelTimer() {
+					if (timer !== 0) {
+						clearTimeout(timer);
+						timer = 0;
+					}
+					document.removeEventListener("pointerup", cancelTimer, true);
+				}
+
+				const hitAt = (x, y) => {
+					const raw = document.elementFromPoint(x, y);
+					if (raw === null) return null;
+					const chip = raw.closest?.(".dsg-chip");
+					if (chip !== null && chip !== undefined) {
+						if (chip.dataset.dsgChip === "loose") return null;
+						const rect = chip.getBoundingClientRect();
+						return { gid: chip.dataset.dsgGid, after: y > rect.top + rect.height / 2 };
+					}
+					const btn = raw.closest?.("button");
+					if (btn !== null && btn !== undefined && btn !== el) {
+						const other = buttonId(btn);
+						if (other !== undefined && isCore(other) && !state.hidden.includes(other)) {
+							const rect = btn.getBoundingClientRect();
+							return { coreId: other, after: y > rect.top + rect.height / 2 };
+						}
+					}
+					return null;
+				};
+
+				const onMove = (e) => {
+					if (!dragging) {
+						if (Math.abs(e.clientX - startX) > 6 || Math.abs(e.clientY - startY) > 6) cancelTimer();
+						return;
+					}
+					e.preventDefault();
+					if (ghost !== null) {
+						ghost.style.transform = `translate3d(${Math.round(e.clientX - grabX)}px, ${Math.round(e.clientY - grabY)}px, 0) scale(1.02)`;
+					}
+					const hit = hitAt(e.clientX, e.clientY);
+					const key = hit === null ? "" : `${hit.gid ?? hit.coreId}:${hit.after}`;
+					if (key === lastKey) return;
+					lastKey = key;
+					if (hit === null) return;
+					const before = snapshotRects();
+					moveCoreTo(id, hit);
+					sync();
+					flipRects(before);
+				};
+
+				const onUp = () => cleanup();
+
+				el.addEventListener("pointerdown", (e) => {
+					if (e.button !== 0) return;
+					startX = e.clientX;
+					startY = e.clientY;
+					if (timer !== 0) clearTimeout(timer);
+					document.addEventListener("pointerup", cancelTimer, true);
+					timer = setTimeout(() => {
+						timer = 0;
+						dragging = true;
+						const rect = el.getBoundingClientRect();
+						grabX = startX - rect.left;
+						grabY = startY - rect.top;
+						ghost = el.cloneNode(true);
+						ghost.removeAttribute("draggable");
+						ghost.removeAttribute("data-dsg-id");
+						Object.assign(ghost.style, {
+							position: "fixed",
+							left: "0px",
+							top: "0px",
+							width: `${Math.round(rect.width)}px`,
+							height: `${Math.round(rect.height)}px`,
+							margin: "0",
+							pointerEvents: "none",
+							zIndex: "2147483000",
+							transform: `translate3d(${Math.round(rect.left)}px, ${Math.round(rect.top)}px, 0) scale(1.02)`,
+							transformOrigin: "center center",
+							boxShadow: "0 10px 28px rgba(0,0,0,.2)",
+							borderRadius: "9px",
+							background: "var(--dsw-alias-bg-layer-1, #fff)",
+							transition: "none",
+						});
+						ghost.dataset.dsgFloating = "1";
+						document.body.appendChild(ghost);
+						el.style.opacity = "0.22";
+						document.body.style.cursor = "grabbing";
+						lastKey = "\u0000";
+						document.addEventListener("pointermove", onMove, true);
+						document.addEventListener("pointerup", onUp, true);
+						document.addEventListener("pointercancel", onUp, true);
+					}, 250);
+				});
+			};
+
+			/** 管理页「顶部固定项」那几行的拖拽：落点是同区的其他行。 */
+			const bindPinnedPointerDrag = (el, id) => {
+				if (el.dataset.dsgPtrBound === "1") return;
+				el.dataset.dsgPtrBound = "1";
+				let timer = 0;
+				let startX = 0;
+				let startY = 0;
+				let ghost = null;
+				let grabX = 0;
+				let grabY = 0;
+				let lastKey = "\u0000";
+				let dragging = false;
+
+				const cleanup = () => {
+					if (timer !== 0) {
+						clearTimeout(timer);
+						timer = 0;
+					}
+					if (ghost !== null) {
+						ghost.remove();
+						ghost = null;
+					}
+					el.style.opacity = "";
+					document.body.style.cursor = "";
+					document.removeEventListener("pointermove", onMove, true);
+					document.removeEventListener("pointerup", onUp, true);
+					document.removeEventListener("pointercancel", onUp, true);
+					dragging = false;
+				};
+
+				const hitAt = (x, y) => {
+					const raw = document.elementFromPoint(x, y);
+					const row = raw?.closest?.(".dsg-row") ?? null;
+					if (row === null || row === el) return null;
+					const other = row.dataset.dsgPin;
+					if (other === undefined) return null;
+					const rect = row.getBoundingClientRect();
+					return { coreId: other, after: y > rect.top + rect.height / 2 };
+				};
+
+				const onMove = (e) => {
+					if (!dragging) {
+						if (Math.abs(e.clientX - startX) > 6 || Math.abs(e.clientY - startY) > 6) {
+							if (timer !== 0) {
+								clearTimeout(timer);
+								timer = 0;
+							}
+						}
+						return;
+					}
+					e.preventDefault();
+					if (ghost !== null) {
+						ghost.style.transform = `translate3d(${Math.round(e.clientX - grabX)}px, ${Math.round(e.clientY - grabY)}px, 0) scale(1.01)`;
+					}
+					const hit = hitAt(e.clientX, e.clientY);
+					const key = hit === null ? "" : `${hit.coreId}:${hit.after}`;
+					if (key === lastKey) return;
+					lastKey = key;
+					if (hit === null) return;
+					moveCoreTo(id, hit);
+					notifyPage();
+				};
+
+				const onUp = () => cleanup();
+
+				el.addEventListener("pointerdown", (e) => {
+					if (e.button !== 0) return;
+					if (e.target.closest("button, input") !== null) return;
+					startX = e.clientX;
+					startY = e.clientY;
+					if (timer !== 0) clearTimeout(timer);
+					timer = setTimeout(() => {
+						timer = 0;
+						dragging = true;
+						const rect = el.getBoundingClientRect();
+						grabX = startX - rect.left;
+						grabY = startY - rect.top;
+						ghost = el.cloneNode(true);
+						Object.assign(ghost.style, {
+							position: "fixed",
+							left: "0px",
+							top: "0px",
+							width: `${Math.round(rect.width)}px`,
+							height: `${Math.round(rect.height)}px`,
+							margin: "0",
+							pointerEvents: "none",
+							zIndex: "2147483000",
+							transform: `translate3d(${Math.round(rect.left)}px, ${Math.round(rect.top)}px, 0) scale(1.01)`,
+							transformOrigin: "center center",
+							boxShadow: "0 8px 22px rgba(0,0,0,.16)",
+							borderRadius: "8px",
+							background: "var(--dsw-alias-bg-layer-1, #fff)",
+							transition: "none",
+						});
 						document.body.appendChild(ghost);
 						el.style.opacity = "0.25";
 						document.body.style.cursor = "grabbing";
@@ -1902,9 +2134,13 @@ window.__ModuleLoader__.load({
 					syncRefs(nav);
 					bindNavDnd(nav);
 					// 所有条目都能拖：普通条目改分组/未分组，顶部固定项只在自己那区里换位
+					// 核心项走手指拖拽（跟分组标签同一套手感）；普通条目仍是 HTML5 ——
+					// 它们要被"丢进"分组，drop 语义不一样。
 					for (const r of rows) {
 						const btn = refs.get(r.id);
-						if (btn !== undefined) bindItemDrag(btn);
+						if (btn === undefined) continue;
+						if (isCore(r.id)) bindCorePointerDrag(btn, r.id);
+						else bindItemDrag(btn);
 					}
 					layout(nav);
 					applyVisibility(animate);
@@ -2036,6 +2272,20 @@ window.__ModuleLoader__.load({
 			 * 把某个分组挪到目标旁边（目标可以是另一个分组，也可以是核心项）。
 			 * @param {{gid?: string, coreId?: string, after?: boolean}} target
 			 */
+			/** 把某个核心项挪到目标旁边（目标是核心项或分组都行）。 */
+			const moveCoreTo = (id, target) => {
+				if (target === null || target === undefined) return;
+				if (target.coreId === id) return;
+				const list = resolvedTopOrder().filter((x) => !(x.kind === "core" && x.id === id));
+				const at = target.gid !== undefined
+					? list.findIndex((x) => x.kind === "group" && x.id === target.gid)
+					: list.findIndex((x) => x.kind === "core" && x.id === target.coreId);
+				if (at < 0) return;
+				list.splice(target.after === true ? at + 1 : at, 0, { kind: "core", id });
+				commitTopOrder(list);
+				save();
+			};
+
 			const moveGroupTo = (gid, target) => {
 				if (target === null || target === undefined) return;
 				if (target.gid === gid) return;
@@ -2341,8 +2591,16 @@ window.__ModuleLoader__.load({
 				}
 
 				/** 顶部固定项：只有排序和隐藏，没有分组。 */
-				const pinnedRow = (id, index) => h("div", { key: `p-${id}`, className: "dsg-row" },
-					h("span", { className: "dsg-rowgrip", style: { visibility: "hidden" } }, "⠿"),
+				const pinnedRow = (id, index) => h("div", {
+					key: `p-${id}`,
+					className: "dsg-row dsg-pin",
+					"data-dsg-pin": id,
+					ref: (el) => {
+						if (el !== null) bindPinnedPointerDrag(el, id);
+					},
+				},
+					// 抓手显示出来 —— 它是"这一行能拖"的信号
+					h("span", { className: "dsg-rowgrip" }, "⠿"),
 					h("span", { className: "dsg-rowname", title: labelOf(id) }, labelOf(id)),
 					h("button", {
 						type: "button",
