@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>dsh-settings-groups harness</title>
+<style>
+	* { box-sizing: border-box; }
+	body { margin: 0; padding: 24px; background: #eceef2; font-family: "Microsoft YaHei", system-ui, sans-serif; }
+	[role="dialog"] { display: flex; width: 880px; height: 840px; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,.12); }
+	nav { width: 208px; flex: none; background: #f7f8fa; padding: 10px; display: flex; flex-direction: column; }
+	nav > div:first-child { height: 40px; flex: none; display: flex; align-items: center; font-size: 12px; color: #999; }
+	nav > div:last-child { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+	.nav-item { display: flex; align-items: center; box-sizing: border-box; width: 100%; height: 40px; padding: 0 12px; border: none; border-radius: 10px; background: transparent; color: #666; font-family: inherit; font-size: 14px; line-height: 40px; text-align: left; cursor: pointer; transition: background .15s ease, color .15s ease; }
+	.nav-item:hover { background: rgba(0,0,0,.06); }
+	.nav-item[aria-current="true"] { background: rgba(0,0,0,.08); color: #222; }
+	#content { flex: 1; padding: 22px 26px; overflow-y: auto; }
+	#toolbar { margin-bottom: 14px; display: flex; gap: 8px; align-items: center; }
+	#toolbar button { height: 28px; padding: 0 10px; border: 1px solid #d0d3d8; border-radius: 6px; background: #fff; cursor: pointer; font-family: inherit; font-size: 12px; }
+	#log { font-size: 11px; color: #888; margin-left: 8px; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+	<button id="btn-rerender">重渲染导航（模拟宿主重建）</button>
+	<button id="btn-open">开 / 关设置面板</button>
+	<span id="log"></span>
+</div>
+<div id="root"></div>
+
+<script src="/vendor/react/umd/react.development.js"></script>
+<script src="/vendor/react-dom/umd/react-dom.development.js"></script>
+<script>
+// ---- 模拟宿主：一张设置台账 + 一个会重渲染的导航列表 ----
+// 宿主内置页和插件注册页在真实环境里都在同一本 `settings.section` 台账里，
+// 所以这里把它们一起塞进 __ledger —— 插件只认台账，不认 DOM 里碰巧有什么。
+const SECTIONS = [
+	{ id: "account", label: "账号与余额", order: 5 },
+	{ id: "general", label: "通用设置", order: 10 },
+	{ id: "models", label: "模型", order: 20 },
+	{ id: "plugins", label: "插件", order: 24 },
+	{ id: "agent-presets", label: "Agent 预设", order: 25 },
+	{ id: "dsh-claude-beautify", label: "Claude 美化", order: 100 },
+	{ id: "dsh-read-aloud", label: "语音朗读", order: 101 },
+	{ id: "dsh-commandcode", label: "Command Code", order: 102 },
+	{ id: "dsh-codex-subscription", label: "Codex 订阅", order: 103 },
+	{ id: "dsh-skills-manager", label: "技能", order: 104 },
+	{ id: "dsh-meme", label: "表情包", order: 105 },
+	{ id: "dsh-remotion", label: "Remotion", order: 106 },
+];
+
+/** [{ name, options, Component }] —— 插件通过 ctx.slots.entries 读它 */
+window.__ledger = SECTIONS.map((s) => ({
+	name: "settings.section",
+	options: { name: "settings.section", id: s.id, order: s.order, label: () => s.label },
+	Component: () => null,
+}));
+window.__dicts = {};           // ns -> { zh, en }
+window.__lang = "zh";
+const localeSubs = new Set();
+const ledgerSubs = new Set();
+window.__effectCleanups = [];
+
+const t = (ns, key) => {
+	const pack = window.__dicts[ns] ?? {};
+	const dict = pack[window.__lang] ?? pack.zh ?? {};
+	return dict[key] ?? key;
+};
+
+window.__ctx = {
+	effect(fn, label) {
+		const cleanup = fn();
+		window.__effectCleanups.push(cleanup);
+		return cleanup;
+	},
+	locale: {
+		register(ns, id, dict) {
+			window.__dicts[ns] = window.__dicts[ns] ?? {};
+			window.__dicts[ns][id] = dict;
+		},
+		bind(ns) {
+			return (key) => t(ns, key);
+		},
+		getSnapshot() {
+			return { id: window.__lang };
+		},
+		subscribe(fn) {
+			localeSubs.add(fn);
+			return () => localeSubs.delete(fn);
+		},
+	},
+	slots: {
+		entries(name) {
+			return window.__ledger.filter((e) => e.name === name);
+		},
+		subscribe(name, fn) {
+			ledgerSubs.add(fn);
+			return () => ledgerSubs.delete(fn);
+		},
+		inject(name, fn) {
+			return fn();
+		},
+		register(options, Component) {
+			window.__ledger.push({ name: options.name, options, Component });
+			for (const fn of ledgerSubs) fn();
+			return () => {
+				window.__ledger = window.__ledger.filter((e) => e.options.id !== options.id);
+				for (const fn of ledgerSubs) fn();
+			};
+		},
+	},
+};
+
+// 模块加载器（插件包约定）
+window.__ModuleLoader__ = {
+	load({ id, factory }) {
+		const req = (name) => {
+			if (name === "react") return window.React;
+			throw new Error(`unknown module: ${name}`);
+		};
+		window.__PLUGINS__ = window.__PLUGINS__ ?? {};
+		window.__PLUGINS__[id] = factory(req);
+	},
+};
+
+const h = React.createElement;
+
+function Sections() {
+	const [, setTick] = React.useState(0);
+	// 真正的设置面板点一项就换页；这里也照做，好让插件看到 aria-current 换人
+	const [activeId, setActiveId] = React.useState('general');
+	React.useEffect(() => {
+		const bump = () => setTick((v) => v + 1);
+		ledgerSubs.add(bump);
+		return () => ledgerSubs.delete(bump);
+	}, []);
+	const ledgerSections = window.__ledger
+		.filter((e) => e.name === "settings.section")
+		.map((e) => ({
+			id: e.options.id,
+			order: e.options.order ?? 0,
+			label: typeof e.options.label === "function" ? e.options.label() : e.options.label,
+		}));
+	// 宿主台账 = 内置页 + 插件注册页；同 id 以插件注册的为准
+	const merged = [...new Map([...SECTIONS, ...ledgerSections].map((s) => [s.id, s])).values()]
+		.sort((a, b) => a.order - b.order);
+	return h("nav", null,
+		h("div", null, "设置"),
+		h("div", { id: "navlist" },
+			merged.map((s, i) => h("button", {
+				key: `${s.id}-${i}`,
+				type: "button",
+				className: "nav-item",
+				"data-section": s.id,
+				"aria-current": s.id === activeId ? "true" : undefined,
+				onClick: () => setActiveId(s.id),
+			}, s.label)),
+		),
+	);
+}
+
+function Dialog() {
+	const [, setTick] = React.useState(0);
+	React.useEffect(() => {
+		const bump = () => setTick((v) => v + 1);
+		ledgerSubs.add(bump);
+		return () => ledgerSubs.delete(bump);
+	}, []);
+	const manage = window.__ledger.find((e) => e.options.id === "settings-groups-manage");
+	return h("div", { role: "dialog", "aria-modal": "true", "data-shortcut-modal": "settings" },
+		h(Sections),
+		h("div", { id: "content" },
+			manage === undefined
+				? h("p", { style: { color: "#999", fontSize: 13 } }, "（管理页尚未注册）")
+				: h(manage.Component, { t: (k) => t("settings-groups", k) }),
+		),
+	);
+}
+
+// 测试用：模拟"插件被卸载"——从台账里摘掉一个设置页并通知订阅者
+window.__removeSection = (id) => {
+	window.__ledger = window.__ledger.filter((e) => e.options.id !== id);
+	for (const fn of ledgerSubs) fn();
+};
+
+let mounted = true;
+function render() {
+	const root = ReactDOM.createRoot(document.getElementById("root"));
+	window.__root = root;
+	root.render(mounted ? h(Dialog) : h("div", { id: "closed" }, "设置面板已关闭"));
+}
+render();
+
+document.getElementById("btn-rerender").addEventListener("click", () => {
+	// 模拟宿主把导航整棵重建：先卸载再挂载
+	window.__root.unmount();
+	render();
+});
+document.getElementById("btn-open").addEventListener("click", () => {
+	mounted = !mounted;
+	window.__root.unmount();
+	render();
+});
+</script>
+<script src="../client.js"></script>
+<script>
+// 插件包加载完 → 手动 apply（真实宿主由 cordis fiber 调）
+try {
+	const mod = window.__PLUGINS__["dsh-settings-groups"];
+	if (!mod) throw new Error("plugin not registered");
+	mod.apply(window.__ctx);
+	document.getElementById("log").textContent = "plugin applied";
+	window.__APPLIED__ = true;
+} catch (error) {
+	console.error(error);
+	document.getElementById("log").textContent = "apply failed: " + error.message;
+	window.__APPLY_ERROR__ = String(error && error.stack ? error.stack : error);
+}
+</script>
+</body>
+</html>

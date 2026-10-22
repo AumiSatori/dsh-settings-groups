@@ -1,0 +1,7 @@
+node_modules/
+test/shot-*.png
+test/debug-*.mjs
+*.log
+.DS_Store
+Thumbs.db
+test/frames/
