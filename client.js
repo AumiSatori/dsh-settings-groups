@@ -748,13 +748,19 @@ window.__ModuleLoader__.load({
 				".dsg-cardhead{display:flex;align-items:center;gap:8px;min-width:0}",
 				".dsg-cardname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-cardcount{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary,#999)}",
-				".dsg-btn{flex:none;height:26px;padding:0 9px;border:none;border-radius:6px;background:var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.12));color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:12.5px;cursor:pointer;transition:filter .12s ease,transform .1s ease}",
-				".dsg-btn:hover{filter:brightness(1.08)}",
-				".dsg-btn:active{transform:scale(.97)}",
-				".dsg-btn[disabled]{opacity:.4;cursor:default}",
+				// 按钮默认**透明底**。之前每个按钮都带一块灰底，鼠标移到行内按钮上时
+				// 那块灰底盖住了行的 hover 背景，看着就是「背景闪一下就没了」。
+				".dsg-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 9px;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary,#8a8a8a);font-family:inherit;font-size:12.5px;line-height:1;cursor:pointer;transition:background .14s ease,color .14s ease,transform .1s ease}",
+				".dsg-btn:hover{background:rgba(127,127,127,.12);color:var(--dsw-alias-label-primary,#333)}",
+				".dsg-btn:active{transform:scale(.96)}",
+				".dsg-btn[disabled]{opacity:.32;cursor:default;background:transparent;color:var(--dsw-alias-label-secondary,#8a8a8a)}",
+				// 纯图标按钮：正方形，图标靠字符，圆角 7px（不要方角）
+				".dsg-icon{width:26px;padding:0;font-size:13px}",
 				".dsg-btn-ghost{background:transparent;color:var(--dsw-alias-label-secondary,#999)}",
-				".dsg-btn-ghost:hover{background:var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.12));color:var(--dsw-alias-label-primary,#333)}",
+				".dsg-btn-ghost:hover{background:rgba(127,127,127,.12);color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-danger{color:var(--dsw-alias-state-error-primary,#e5484d)}",
+				// 删除：平时白底红字，悬浮翻成红底白字（主人明确要这个反色）
+				".dsg-danger:hover,.dsg-btn.dsg-danger:hover{background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff}",
 				".dsg-rows{display:flex;flex-direction:column;gap:2px}",
 				".dsg-row{display:flex;align-items:center;gap:8px;min-height:34px;padding:4px 8px;border-radius:7px;color:var(--dsw-alias-label-primary,#333);transition:background .12s ease,opacity .12s ease}",
 				".dsg-row:hover{background:var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.1))}",
@@ -1889,13 +1895,13 @@ window.__ModuleLoader__.load({
 					})
 					: h("button", {
 						type: "button",
-						className: "dsg-btn dsg-btn-ghost",
+						className: "dsg-btn dsg-icon",
 						title: tPage("remove"),
 						onClick: () => {
 							place(id, {});
 							commit(tPage("movedOut"));
 						},
-					}, tPage("remove")),
+					}, iconEl(ICON_EXIT, ICON_EXIT_ARROW)),
 				// 隐藏：从导航里彻底拿掉，但配置留着，随时能从「已隐藏」放回来
 				h("button", {
 					type: "button",
@@ -1907,6 +1913,42 @@ window.__ModuleLoader__.load({
 					},
 				}, "⊘"),
 				);
+
+				/**
+				 * 细线图标。字符版（✎ ↺ ✕）笔画太细，在小字号下糊成一团；
+				 * 用 SVG 才能跟放大镜保持同一条线宽。
+				 */
+				const iconEl = (d, extra) => h("svg", {
+					viewBox: "0 0 16 16",
+					width: 13,
+					height: 13,
+					"aria-hidden": "true",
+					style: { display: "block", flex: "none" },
+				},
+				h("path", {
+					d,
+					fill: "none",
+					stroke: "currentColor",
+					strokeWidth: 1.5,
+					strokeLinecap: "round",
+					strokeLinejoin: "round",
+				}),
+				extra === undefined ? null : h("path", {
+					d: extra,
+					fill: "none",
+					stroke: "currentColor",
+					strokeWidth: 1.5,
+					strokeLinecap: "round",
+					strokeLinejoin: "round",
+				}),
+				);
+
+				const ICON_PENCIL = "M3 13l.6-2.6 7.3-7.3a1.2 1.2 0 0 1 1.7 0l.3.3a1.2 1.2 0 0 1 0 1.7l-7.3 7.3L3 13z";
+				const ICON_PENCIL_TIP = "M9.8 4.2l2 2";
+				const ICON_TRASH = "M3.5 5h9M6.5 5V3.2h3V5M5 5l.5 8h5L11 5";
+				const ICON_TRASH_LINES = "M7 7.5v3.5M9 7.5v3.5";
+				const ICON_EXIT = "M9.5 3H12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9.5";
+				const ICON_EXIT_ARROW = "M8.5 8H2.5M5.5 5.5 2.5 8l3 2.5";
 
 				/**
 				 * 自定义下拉：原生 <select> 在浅色主题里是「白底 + 蓝条 + 黑边框」，
@@ -2114,21 +2156,22 @@ window.__ModuleLoader__.load({
 								}, "↓"),
 								h("button", {
 									type: "button",
-									className: "dsg-btn dsg-btn-ghost",
+									className: "dsg-btn dsg-icon",
+									title: tPage("rename"),
 									onClick: () => {
 										setRenaming(g.id);
 										setRenameText(g.name);
 									},
-								}, tPage("rename")),
+								}, iconEl(ICON_PENCIL, ICON_PENCIL_TIP)),
 								h("button", {
 									type: "button",
-									className: "dsg-btn dsg-btn-ghost dsg-danger",
+									className: "dsg-btn dsg-icon dsg-danger",
 									title: tPage("removeGroupHint"),
 									onClick: () => {
 										removeGroup(g.id);
 										commit();
 									},
-								}, tPage("removeGroup")),
+								}, iconEl(ICON_TRASH, ICON_TRASH_LINES)),
 							),
 					),
 					items.length === 0
