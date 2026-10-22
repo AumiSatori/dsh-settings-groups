@@ -1052,81 +1052,108 @@ const enterAnim = await page.evaluate(() => {
 })
 check('面板打开时有入场动画', enterAnim.includes('dsgPanelIn'), enterAnim)
 
-// 关掉面板（harness 的按钮直接 unmount dialog），看有没有留快照
+
+// 用滚动后的正文和仍带切页标记的内容关闭，防止克隆体回顶、重排或重播。
 const ghostState = await page.evaluate(async () => {
+	const panel = document.querySelector('[data-shortcut-modal="settings"]')
+	const nav = panel.querySelector('nav')
+	let content = nav.nextElementSibling
+	while (content.classList.contains('dsh-ptweak-split')) content = content.nextElementSibling
+	const navList = nav.lastElementChild
+	navList.style.maxHeight = '180px'
+	navList.style.flex = 'none'
+	navList.scrollTop = 80
+	content.scrollTop = 180
+	const animated = document.createElement('div')
+	animated.dataset.exitFixture = '1'
+	animated.style.cssText = 'height:80px;overflow:auto;animation:dsgPageIn .8s infinite'
+	animated.innerHTML = '<div style="height:400px">冻结滚动与子动画</div>'
+	content.appendChild(animated)
+	animated.scrollTop = 40
+	animated.dispatchEvent(new Event('scroll'))
+	const before = { width: content.getBoundingClientRect().width, padding: getComputedStyle(content).padding, navScroll: navList.scrollTop, contentScroll: content.scrollTop }
 	document.getElementById('btn-open').click()
-	await new Promise((r) => setTimeout(r, 60))
+	await new Promise((r) => setTimeout(r, 45))
 	const g = document.querySelector('[data-dsg-ghost="1"]')
 	if (g === null) return { exists: false }
 	const cs = getComputedStyle(g)
-	return {
-		exists: true,
-		position: cs.position,
-		animation: cs.animationName,
-		pointerEvents: cs.pointerEvents,
-		// 快照本身就是 dialog 的克隆，属性一模一样 —— 必须排除掉才是在看"真面板没了没"
-		origin: document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]:not([data-dsg-ghost])') === null,
-		// 分层退场：内容先淡，框延后；两段都要在跑
-		contentAnim: (() => {
-			let el = g.querySelector('nav').nextElementSibling
-			while (el !== null && el.classList.contains('dsh-ptweak-split')) el = el.nextElementSibling
-			return el === null ? null : getComputedStyle(el).animationName
-		})(),
-		panelDelay: cs.animationDelay,
+	let gc = g.querySelector('nav').nextElementSibling
+	while (gc.classList.contains('dsh-ptweak-split')) gc = gc.nextElementSibling
+	const gs = getComputedStyle(gc)
+	return { exists: true, position: cs.position, animation: cs.animationName, pointerEvents: cs.pointerEvents,
+		origin: document.querySelector('[data-shortcut-modal="settings"]') === null,
+		contentAnim: gs.animationName, panelDelay: cs.animationDelay, scale: cs.scale, transform: cs.transform,
+		contentOpacity: gs.opacity, contentFilter: gs.filter, pageMarkers: g.querySelectorAll('[data-dsg-page]').length,
+		width: gc.getBoundingClientRect().width, padding: gs.padding, before,
+		navScroll: g.querySelector('nav').lastElementChild.scrollTop, contentScroll: gc.scrollTop,
+		nestedScroll: g.querySelector('[data-exit-fixture]').scrollTop,
+		childAnimation: getComputedStyle(g.querySelector('[data-exit-fixture]')).animationName,
+		inert: g.inert,
 	}
 })
 check('关闭时留了一张快照', ghostState.exists === true, JSON.stringify(ghostState))
-check('快照在原地淡出且不吃点击', ghostState.position === 'fixed' && ghostState.animation.includes('dsgPanelOut') && ghostState.pointerEvents === 'none', JSON.stringify(ghostState))
+check('快照在原地淡出且不吃点击', ghostState.position === 'fixed' && ghostState.animation.includes('dsgPanelOut') && ghostState.pointerEvents === 'none' && ghostState.inert, JSON.stringify(ghostState))
 check('快照出现时真面板已消失', ghostState.origin === true, String(ghostState.origin))
-check('内容区先播退场', ghostState.contentAnim === 'dsgContentOut', String(ghostState.contentAnim))
-check('整框退场带延迟', parseFloat(ghostState.panelDelay) > 0, String(ghostState.panelDelay))
-
-// 内容区先结束，其 animationend 会冒泡；整框必须继续播完自己的退场。
+check('左右同步退出，正文不再单独消失', ghostState.contentAnim === 'none' && Number(ghostState.contentOpacity) === 1, JSON.stringify(ghostState))
+check('退场无等待也不缩放文字', parseFloat(ghostState.panelDelay) === 0 && ['none', '1'].includes(ghostState.scale) && ghostState.transform === 'none', JSON.stringify(ghostState))
+check('快照冻结切页和子动画以避免重影', ghostState.pageMarkers === 0 && ghostState.childAnimation === 'none' && ghostState.contentFilter === 'none', JSON.stringify(ghostState))
+check('正文尺寸和留白与关闭前一致', Math.abs(ghostState.width - ghostState.before.width) < .5 && ghostState.padding === ghostState.before.padding, JSON.stringify(ghostState))
+check('正文与导航保持关闭前的滚动位置', ghostState.contentScroll === ghostState.before.contentScroll && ghostState.navScroll === ghostState.before.navScroll && ghostState.before.contentScroll > 0 && ghostState.before.navScroll > 0 && ghostState.nestedScroll === 40, JSON.stringify(ghostState))
 const afterContentOut = await page.evaluate(async () => {
 	const ghost = document.querySelector('[data-dsg-ghost="1"]')
 	if (ghost === null) return false
-	let content = ghost.querySelector('nav').nextElementSibling
-	while (content !== null && content.classList.contains('dsh-ptweak-split')) content = content.nextElementSibling
-	content?.dispatchEvent(new AnimationEvent('animationend', { bubbles: true, animationName: 'dsgContentOut' }))
-	await new Promise((r) => setTimeout(r, 170))
-	return ghost.isConnected
+	ghost.querySelector('nav').dispatchEvent(new AnimationEvent('animationend', { bubbles: true, animationName: 'unrelated-child' }))
+	const before = Number(getComputedStyle(ghost).opacity)
+	await new Promise((r) => setTimeout(r, 25))
+	return ghost.isConnected && Number(getComputedStyle(ghost).opacity) < before
 })
-check('内容退场结束不会提前删掉整框', afterContentOut)
-await page.waitForTimeout(530)
-check('快照会自毁', (await page.evaluate(() => document.querySelector('[data-dsg-ghost="1"]') === null)))
-
+check('子事件不打断整框，整框正在同步淡出', afterContentOut)
+await page.waitForTimeout(350)
+check('快照会自毁', await page.evaluate(() => document.querySelector('[data-dsg-ghost="1"]') === null))
 
 // 重新打开，别把后面晾在关闭状态
 await page.evaluate(() => document.getElementById('btn-open').click())
 await page.waitForTimeout(500)
 check('重新打开后面板回来', (await page.locator('[role="dialog"][aria-modal="true"]').count()) >= 1)
 
-// overlay 场景：宿主可能把 dialog 包在一层容器里整个摘掉，被移除的是容器
+
+// reparent 不等于关闭；只有真正摘掉 overlay 时才留快照。
 const wrapped = await page.evaluate(async () => {
-	const dialog = document.querySelector('[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]:not([data-dsg-ghost])')
-	if (dialog === null) return 'no-dialog'
-	const parent = dialog.parentNode
-	const next = dialog.nextSibling
+	const dialog = document.querySelector('[data-shortcut-modal="settings"]')
+	const parent = dialog.parentNode, next = dialog.nextSibling
 	const wrapper = document.createElement('div')
 	parent.insertBefore(wrapper, dialog)
 	wrapper.appendChild(dialog)
-	await new Promise((r) => setTimeout(r, 80))
+	await new Promise((r) => setTimeout(r, 40))
+	const reparentClean = document.querySelector('[data-dsg-ghost="1"]') === null
 	wrapper.remove()
-	// 插件这会儿应该已经抓到"dialog 被容器带走了"。
-	// 但 React 并不知道我们把节点挪过，直接不管会导致它卸载时 removeChild 报错 —— 放回原处。
+	await new Promise((r) => setTimeout(r, 40))
+	const removedSnapshot = document.querySelector('[data-dsg-ghost="1"]') !== null
+	// 放回去以匹配 React 的节点归属；已重新打开时旧快照应立即清掉。
 	parent.insertBefore(dialog, next)
-	// 观察器回调是异步的，给足窗口再判，别用固定 80ms 赌时序
-	for (let i = 0; i < 10; i += 1) {
-		await new Promise((r) => setTimeout(r, 50))
-		if (document.querySelector('[data-dsg-ghost="1"]') !== null) return true
-	}
-	return false
+	await new Promise((r) => setTimeout(r, 40))
+	return { reparentClean, removedSnapshot, reopenClean: document.querySelector('[data-dsg-ghost="1"]') === null }
 })
-check('overlay 整体移除也能触发退场', wrapped === true, String(wrapped))
-await page.waitForTimeout(800)
-// 再打开一次，后面的迁移测试还要用
+check('移动仍连接的面板不会制造重影', wrapped.reparentClean, JSON.stringify(wrapped))
+check('overlay 整体移除也能触发退场', wrapped.removedSnapshot, JSON.stringify(wrapped))
+check('面板重新出现时立即清理旧快照', wrapped.reopenClean, JSON.stringify(wrapped))
+await page.evaluate(() => { document.getElementById('btn-open').click(); document.getElementById('btn-open').click() })
+await page.waitForTimeout(80)
+check('快速关闭再打开不会叠着两份画面', await page.evaluate(() => document.querySelectorAll('[data-shortcut-modal="settings"]').length === 1 && document.querySelectorAll('[data-dsg-ghost="1"]').length === 0))
+await page.waitForTimeout(300)
 await page.evaluate(() => document.getElementById('btn-open').click())
-await page.waitForTimeout(500)
+await page.waitForTimeout(40)
+check('再次关闭只保留一张最新快照', await page.locator('[data-dsg-ghost="1"]').count() === 1)
+await page.waitForTimeout(300)
+await page.evaluate(() => document.getElementById('btn-open').click())
+await page.waitForTimeout(300)
+await page.emulateMedia({ reducedMotion: 'reduce' })
+await page.evaluate(() => document.getElementById('btn-open').click())
+await page.waitForTimeout(30)
+check('减少动态效果时关闭不残留快照', await page.locator('[data-dsg-ghost="1"]').count() === 0)
+await page.emulateMedia({ reducedMotion: 'no-preference' })
+await page.evaluate(() => document.getElementById('btn-open').click())
+await page.waitForTimeout(300)
 
 // ---- 12. 旧插件配置迁移（省得重新配一遍）----
 await page.evaluate(async () => {

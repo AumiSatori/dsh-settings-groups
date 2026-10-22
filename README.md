@@ -45,6 +45,10 @@ node scripts/profile.mjs uninstall --profile desktop
 
 装完**重启 DSH**（宿主端要加载新插件）。只改 `client.js` 的话，窗口里 `Ctrl+R` 就够。
 
+### 0.1.9：设置关闭同步退场
+
+关闭时改为整块面板同步淡出，约 180ms，无延迟、不缩放文字。快照冻结导航和正文的尺寸、样式、滚动位置及内部动画，清除切页入场标记，避免右侧重播、回顶或重新排版。移动仍连接的面板不会被当成关闭；快速重开立即清除旧快照，开启「减少动态效果」时直接关闭。
+
 ### 0.1.8：补位与上下移按钮动画
 
 管理页的固定项、组内条目、未分组条目和分组卡片共用 280ms 平滑补位动画；点击上移 / 下移同样滑到新位置。重排动画在 React 提交后、浏览器绘制前启动，避免先跳到终点再回弹；连续反向点击从当前画面接续，开启「减少动态效果」时直接完成排序。分组按钮每次移动到相邻分组，跳过中间混排的固定项。
@@ -143,7 +147,7 @@ node scripts/profile.mjs uninstall --profile desktop
 
 ```sh
 npm i -D playwright react@18 react-dom@18   # 只有跑测试才需要
-node test/run.mjs            # 真 Chromium 跑 155 项断言
+node test/run.mjs            # 真 Chromium 跑 163 项断言
 node test/host.mjs           # 宿主端路由单测（10 项，不启 DSH）
 node test/record.mjs         # 重新录 README 的动图（要 ffmpeg）
 ```

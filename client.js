@@ -3286,11 +3286,10 @@ window.__ModuleLoader__.load({
 				`${PT_SEL}[data-dsh-ptweak="1"] > nav ~ div:not(.dsh-ptweak-split):not(.dsh-ptweak-rz){min-width:0}`,
 				// 出：宿主直接把 dialog 卸掉，我们来不及在它身上播动画。
 				// 所以移除瞬间留一张同尺寸快照在原地淡出，人眼看就是面板在退场。
-				// 退场分两层：先让右侧内容淡掉（像是"白掉"），整个框再收走。
-				// 同时淡出会显得两边各走各的；分层之后有先后，看着是一个东西在关。
-				"@keyframes dsgContentOut{from{opacity:1}to{opacity:0}}",
-				"@keyframes dsgPanelOut{from{opacity:1;scale:1}to{opacity:0;scale:.965}}",
-				"[data-dsg-ghost=\"1\"]{animation:dsgPanelOut .26s cubic-bezier(.4,0,.9,.4) forwards}",
+				// 整个面板同步淡出；内部快照冻结，防止切页动画在克隆体里重播。
+				"@keyframes dsgPanelOut{from{opacity:var(--dsg-exit-opacity,1)}to{opacity:0}}",
+				"[data-dsg-ghost=\"1\"]{animation:dsgPanelOut .18s cubic-bezier(.3,0,.7,1) both}",
+				"[data-dsg-ghost=\"1\"] *{animation:none !important;transition:none !important;caret-color:transparent !important}",
 				// ⚠️ 这里**不要**常驻 `will-change:transform`。
 				// 常驻会让设置面板整个生命周期都待在 GPU 合成层上，合成层里的文字
 				// 不走 subpixel antialiasing（LCD 次像素渲染），只剩灰度抗锯齿 ——
@@ -3323,61 +3322,81 @@ window.__ModuleLoader__.load({
 			/** 持续跟踪面板尺寸（挂载那一帧量到的常常是 0）。 */
 			let ptRectObs = null;
 
-			/**
-			 * 面板被宿主卸掉时，留一张同尺寸的快照在原地淡出。
-			 *
-			 * 为什么要克隆：React unmount 是直接把节点从 DOM 摘掉，没有"关闭前"这个
-			 * 可拦截的时机，元素一没，任何 transition/animation 都无处可播。
-			 * 克隆体是静态快照，不挂任何监听（cloneNode 也不复制 addEventListener），
-			 * 存活 220ms 后自毁，不会影响下一次打开。
-			 */
+			// 只缓存面板、导航和正文的样式；关闭时不对整棵设置树逐项计算样式。
+			let ptFrame = null;
+			const ptScrolls = new Map();
+			const ptGhosts = new Map();
+			const ptSnapshotProps = ["display", "flex-direction", "align-items", "justify-content", "gap", "padding", "border", "border-radius", "background", "box-shadow", "font", "color", "overflow-x", "overflow-y", "opacity", "filter"];
+			const ptCapturePanel = (panel) => {
+				if (!panel?.isConnected) return;
+				const nav = panel.querySelector(":scope > nav"), content = ptContentOf(panel);
+				if (!nav || !content) return;
+				const rect = panel.getBoundingClientRect();
+				const regions = [panel, nav, content].map((el) => {
+					const cs = getComputedStyle(el), box = el.getBoundingClientRect();
+					return { index: el === panel ? -1 : [...panel.children].indexOf(el), width: box.width, height: box.height,
+						styles: ptSnapshotProps.map((key) => [key, cs.getPropertyValue(key)]) };
+				});
+				for (const el of [nav.lastElementChild, content]) if (el) ptScrolls.set(el, { x: el.scrollLeft, y: el.scrollTop });
+				const scrolls = [];
+				for (const [el, offset] of ptScrolls) {
+					if (!panel.contains(el)) { ptScrolls.delete(el); continue; }
+					const path = [];
+					let cursor = el;
+					while (cursor !== panel) {
+						path.unshift([...cursor.parentElement.children].indexOf(cursor));
+						cursor = cursor.parentElement;
+					}
+					scrolls.push({ path, ...offset });
+				}
+				ptLastRect = rect;
+				ptFrame = { panel, rect, regions, scrolls };
+			};
+
+			/** 真正卸载后冻结一份静态画面，整块同步淡出；重新打开时立即清掉旧快照。 */
 			const ptGhostOut = (node) => {
-				const rect = ptLastRect;
-				if (rect === null || rect.width < 80 || rect.height < 80) return;
-				// 同一个节点只处理一次（多条 mutation 会重复报同一个移除）。
-				// 不能用「页面上已有 ghost 就跳过」—— 上一次的 ghost 还没自毁完时，
-				// 会把下一次关闭的退场一起挡掉。
-				if (node.dataset.dsgGhosted === "1") return;
+				if (node.isConnected || document.querySelector(PT_SEL) !== null) return;
+				if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+				const frame = ptFrame?.panel === node ? ptFrame : null;
+				const rect = frame?.rect ?? ptLastRect;
+				if (!rect || rect.width < 80 || rect.height < 80 || node.dataset.dsgGhosted === "1") return;
 				node.dataset.dsgGhosted = "1";
+				for (const kill of [...ptGhosts.values()]) kill();
 				try {
 					const ghost = node.cloneNode(true);
-					// 去掉 id，避免和随后重建的真实面板撞车
+					ghost.removeAttribute("id");
 					for (const el of ghost.querySelectorAll("[id]")) el.removeAttribute("id");
+					for (const el of ghost.querySelectorAll("[data-dsg-page]")) el.removeAttribute("data-dsg-page");
 					ghost.removeAttribute("data-dsh-ptweak");
-					// 摘掉这个属性，否则它会匹配 `${PT_SEL}{animation:dsgPanelIn}`（特异性还更高），
-					// 快照就会播"入场"而不是"退场"
 					ghost.removeAttribute("data-shortcut-modal");
+					ghost.removeAttribute("aria-modal");
 					ghost.setAttribute("data-dsg-ghost", "1");
 					ghost.setAttribute("aria-hidden", "true");
-					ghost.removeAttribute("aria-modal");
 					ghost.inert = true;
-					const st = ghost.style;
-					st.position = "fixed";
-					st.left = `${Math.round(rect.left)}px`;
-					st.top = `${Math.round(rect.top)}px`;
-					st.width = `${Math.round(rect.width)}px`;
-					st.height = `${Math.round(rect.height)}px`;
-					st.margin = "0";
-					st.transform = "none";
-					st.pointerEvents = "none";
-					st.zIndex = "2147483000";
-					// inline 指定，别跟 CSS 特异性较劲
-					// 内容先退（0–160ms），框后收（130ms 起，240ms）——两层叠一点点，不要硬切
-					st.animation = "dsgPanelOut .24s cubic-bezier(.4,0,.9,.4) .13s forwards";
-					document.body.appendChild(ghost);
-					// 克隆体里也要按同样的规则找内容区（跳过我们插的分隔条）
-					const ghostContent = ptContentOf(ghost);
-					if (ghostContent !== null) {
-						ghostContent.style.animation = "dsgContentOut .16s ease forwards";
+					for (const region of frame?.regions ?? []) {
+						const el = region.index < 0 ? ghost : ghost.children[region.index];
+						if (!el) continue;
+						for (const [key, value] of region.styles) el.style.setProperty(key, value);
+						Object.assign(el.style, { boxSizing: "border-box", width: `${region.width}px`, height: `${region.height}px`, minWidth: "0", minHeight: "0", maxWidth: "none", maxHeight: "none", flex: "none" });
 					}
-					const kill = () => ghost.remove();
+					const st = ghost.style;
+					Object.assign(st, { position: "fixed", inset: "auto", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, boxSizing: "border-box", margin: "0", transform: "none", scale: "none", translate: "none", rotate: "none", pointerEvents: "none", zIndex: "2147483000", transition: "none" });
+					st.setProperty("--dsg-exit-opacity", st.opacity || "1");
+					st.setProperty("animation", "dsgPanelOut .18s cubic-bezier(.3,0,.7,1) both", "important");
+					document.body.appendChild(ghost);
+					for (const { path, x, y } of frame?.scrolls ?? []) {
+						let el = ghost;
+						for (const index of path) el = el?.children[index];
+						if (el) { el.scrollLeft = x; el.scrollTop = y; }
+					}
+					let timer;
+					const kill = () => { clearTimeout(timer); ghost.remove(); ptGhosts.delete(ghost); };
+					ptGhosts.set(ghost, kill);
 					ghost.addEventListener("animationend", (event) => {
 						if (event.target === ghost && event.animationName === "dsgPanelOut") kill();
 					});
-					setTimeout(kill, 700); // 双保险：animationend 万一没来（两段合计 370ms）
-				} catch (_ignored) {
-					/* 克隆失败就让它直接消失，不影响关闭本身 */
-				}
+					timer = setTimeout(kill, 400);
+				} catch (_ignored) { /* 快照失败时正常关闭。 */ }
 			};
 
 			/** 当前激活的设置页按钮（用来判断"换人了"）。 */
@@ -3399,6 +3418,7 @@ window.__ModuleLoader__.load({
 
 			/** ① 侧栏右缘分隔条 ② 拖 header 移动面板 ③ 四边四角缩放；都是双击复位。 */
 			const ptDecorate = (panel) => {
+				delete panel.dataset.dsgGhosted;
 				if (panel.dataset.dshPtweak === "1") return;
 				const nav = panel.querySelector(":scope > nav");
 				const content = ptContentOf(panel);
@@ -3646,6 +3666,7 @@ window.__ModuleLoader__.load({
 				};
 				panel.addEventListener("pointerup", dropLayer, true);
 				panel.addEventListener("pointercancel", dropLayer, true);
+				ptCapturePanel(panel);
 			};
 
 			let ptQueued = false;
@@ -3672,20 +3693,21 @@ window.__ModuleLoader__.load({
 					const panel = document.querySelector(PT_SEL);
 					if (panel !== null) {
 						try {
+							for (const kill of [...ptGhosts.values()]) kill();
 							ptDecorate(panel);
-							ptLastRect = panel.getBoundingClientRect();
+							ptCapturePanel(panel);
 							// 持续跟踪：挂载那一帧常常还没布局完（rect 全 0），
 							// 只靠"补测一次"仍会漏（面板被重建、入场动画改尺寸都会错过）。
 							if (ptRectObs === null) ptRectObs = new ResizeObserver(() => {
 								const live = document.querySelector(PT_SEL);
-								if (live !== null) ptLastRect = live.getBoundingClientRect();
+								if (live !== null) ptCapturePanel(live);
 							});
 							ptRectObs.disconnect();
 							ptRectObs.observe(panel);
 							// 位置变化不触发 ResizeObserver（拖动），所以拖动结束也要补一次
 							setTimeout(() => {
 								const live = document.querySelector(PT_SEL);
-								if (live !== null) ptLastRect = live.getBoundingClientRect();
+								if (live !== null) ptCapturePanel(live);
 							}, 300);
 						} catch (error) {
 							console.warn("[dsh-settings-groups] panel tweak failed", error);
@@ -3697,6 +3719,20 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => {
 				ptStyle.textContent = PT_CSS;
 				document.head.appendChild(ptStyle);
+				const captureBeforeClose = (event) => {
+					if (event.type === "keydown" && event.key !== "Escape") return;
+					const panel = document.querySelector(PT_SEL);
+					if (panel !== null) ptCapturePanel(panel);
+				};
+				const captureScroll = (event) => {
+					const panel = document.querySelector(PT_SEL), el = event.target;
+					if (panel?.contains(el) && el instanceof Element) {
+						ptScrolls.set(el, { x: el.scrollLeft, y: el.scrollTop });
+						ptCapturePanel(panel);
+					}
+				};
+				for (const type of ["pointerdown", "click", "keydown"]) document.addEventListener(type, captureBeforeClose, true);
+				document.addEventListener("scroll", captureScroll, true);
 				let resizeFrame = null;
 				const fitViewport = () => {
 					if (resizeFrame !== null) return;
@@ -3715,6 +3751,10 @@ window.__ModuleLoader__.load({
 				scan();
 				ptObserver.observe(document.body, { childList: true, subtree: true });
 				return () => {
+					for (const type of ["pointerdown", "click", "keydown"]) document.removeEventListener(type, captureBeforeClose, true);
+					document.removeEventListener("scroll", captureScroll, true);
+					for (const kill of [...ptGhosts.values()]) kill();
+					ptScrolls.clear(); ptFrame = null;
 					window.removeEventListener("resize", fitViewport);
 					window.visualViewport?.removeEventListener("resize", fitViewport);
 					if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
