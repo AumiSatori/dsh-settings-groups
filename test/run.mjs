@@ -638,6 +638,40 @@ check('下拉浮层是圆角不是方角', pickerMenu !== null && pickerMenu.rad
 await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
 await page.waitForTimeout(120)
 
+// ---- 9.7c2 分区：卡片头拖整组，条目行不拖整组 ----
+const rowHold = await page.evaluate(async () => {
+	const row = [...document.querySelectorAll('.dsg-row')]
+		.find((r) => r.querySelector('.dsg-rowname')?.textContent === 'Codex 订阅')
+	if (row === undefined) return 'no-row'
+	const r = row.getBoundingClientRect()
+	row.dispatchEvent(new PointerEvent('pointerdown', {
+		bubbles: true, cancelable: true, clientX: r.left + 60, clientY: r.top + 16, button: 0, pointerId: 9,
+	}))
+	await new Promise((x) => setTimeout(x, 300))
+	const floating = document.querySelector('[data-dsg-floating="1"]') !== null
+	document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + 60, clientY: r.top + 16 }))
+	await new Promise((x) => setTimeout(x, 150))
+	return floating
+})
+check('长按条目行不会拖起整组', rowHold === false, String(rowHold))
+
+const headHold = await page.evaluate(async () => {
+	const card = [...document.querySelectorAll('.dsg-page .dsg-card')]
+		.find((c) => c.querySelector('.dsg-cardname')?.textContent === '开发工具')
+	if (card === undefined) return 'no-card'
+	const head = card.querySelector('.dsg-cardhead')
+	const r = head.getBoundingClientRect()
+	head.dispatchEvent(new PointerEvent('pointerdown', {
+		bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 10, button: 0, pointerId: 10,
+	}))
+	await new Promise((x) => setTimeout(x, 300))
+	const floating = document.querySelector('[data-dsg-floating="1"]') !== null
+	document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + 40, clientY: r.top + 10 }))
+	await new Promise((x) => setTimeout(x, 150))
+	return floating
+})
+check('长按卡片头会浮起整组', headHold === true, String(headHold))
+
 // ---- 9.7d1 「分组管理」是插件自己的页面，应该能归组 ----
 await dragItemToChip('分组管理', '开发工具')
 await page.waitForTimeout(400)

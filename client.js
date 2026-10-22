@@ -1250,7 +1250,9 @@ window.__ModuleLoader__.load({
 
 				el.addEventListener("pointerdown", (e) => {
 					if (e.button !== 0) return;
-					if (e.target.closest("button, input, .dsg-picker") !== null) return;
+					// 分区：卡片头拖整组，组内条目行走它们自己的拖拽。
+					// 不排除的话按在条目上会冒泡到这里，整个分组被拎起来。
+					if (e.target.closest(".dsg-row, button, input, .dsg-picker") !== null) return;
 					startX = e.clientX;
 					startY = e.clientY;
 					if (timer !== 0) clearTimeout(timer);
@@ -3055,7 +3057,9 @@ window.__ModuleLoader__.load({
 			const PT_KEY = "dsh.settingsPanelTweak.v1";
 			const PT_MIN_NAV = 150;
 			const PT_MIN_CONTENT = 260;
-			const PT_HIT = "button,a,input,select,textarea,[role='button']";
+			// 这些位置按下时不算"拖面板"：除了原生控件，还包括管理页里自己画的可拖区域 ——
+		// 不然按住卡片头会把整个面板跟着拖走。
+		const PT_HIT = "button,a,input,select,textarea,[role='button'],.dsg-cardhead,.dsg-row,.dsg-picker";
 
 			const ptRead = () => {
 				try {
