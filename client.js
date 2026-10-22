@@ -754,20 +754,19 @@ window.__ModuleLoader__.load({
 				".dsg-confirm-danger:hover{background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff;opacity:.88}",
 				".dsg-cardname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-cardcount{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary,#999)}",
-				// 按钮默认**透明底**，hover 也**不加底** —— 只把图标/文字压深。
-				// 之前按钮自己叠一层灰底，压在行的灰底上，那块颜色永远比周围深一档，
-				// 看着就是「悬浮样式不对」。删除是唯一例外（悬浮翻红底，那是反色强调）。
-				".dsg-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 9px;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-tertiary,#9a9a9a);font-family:inherit;font-size:12.5px;line-height:1;cursor:pointer;transition:color .14s ease,transform .1s ease}",
-				".dsg-btn:hover{background:transparent;color:var(--dsw-alias-label-primary,#333)}",
+				// 操作按钮统一细边框；透明底沿用行背景，悬浮时加深边框与图标。
+				".dsg-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:26px;padding:0 9px;border:1px solid rgba(127,127,127,.3);border-radius:7px;background:transparent;color:var(--dsw-alias-label-tertiary,#9a9a9a);font-family:inherit;font-size:12.5px;line-height:1;cursor:pointer;transition:border-color .14s ease,color .14s ease,transform .1s ease}",
+				".dsg-btn:hover{border-color:rgba(127,127,127,.55);background:transparent;color:var(--dsw-alias-label-primary,#333)}",
+				".dsg-btn:focus-visible{outline:2px solid var(--dsg-accent,#5b5bf6);outline-offset:2px}",
 				".dsg-btn:active{transform:scale(.94)}",
 				".dsg-btn[disabled]{opacity:.28;cursor:default;background:transparent;color:var(--dsw-alias-label-tertiary,#9a9a9a)}",
 				// 纯图标按钮：正方形，图标靠字符，圆角 7px（不要方角）
 				".dsg-icon{width:28px;height:28px;padding:0;font-size:13px}",
 				".dsg-btn-ghost{background:transparent;color:var(--dsw-alias-label-tertiary,#9a9a9a)}",
 				".dsg-btn-ghost:hover{background:transparent;color:var(--dsw-alias-label-primary,#333)}",
-				".dsg-danger{color:var(--dsw-alias-state-error-primary,#e5484d)}",
+				".dsg-danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5484d) 40%,transparent);color:var(--dsw-alias-state-error-primary,#e5484d)}",
 				// 删除：平时红图标，悬浮翻成红底白字（主人明确要这个反色）
-				".dsg-danger:hover,.dsg-btn.dsg-danger:hover{background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff}",
+				".dsg-danger:hover,.dsg-btn.dsg-danger:hover{border-color:var(--dsw-alias-state-error-primary,#e5484d);background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff}",
 				".dsg-rows{display:flex;flex-direction:column;gap:2px}",
 				".dsg-pin{cursor:grab;user-select:none}",
 				".dsg-pin:active{cursor:grabbing}",
