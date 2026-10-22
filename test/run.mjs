@@ -578,6 +578,29 @@ check('下拉浮层是圆角不是方角', pickerMenu !== null && pickerMenu.rad
 await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
 await page.waitForTimeout(120)
 
+// ---- 9.7e 管理页的整张卡片也能拖 ----
+const cardDrag = await page.evaluate(() => {
+	const cards = [...document.querySelectorAll('.dsg-page .dsg-card')]
+		.filter((c) => c.querySelector('.dsg-cardname') !== null)
+	const byName = (n) => cards.find((c) => c.querySelector('.dsg-cardname')?.textContent === n)
+	const a = byName('界面增强')
+	const b = byName('开发工具')
+	if (a === undefined || b === undefined) return 'missing'
+	const r = b.getBoundingClientRect()
+	// 拖到 b 的上半部分 = 插到它前面
+	const y = r.top + 4
+	const dt = new DataTransfer()
+	const fire = (el, type) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 40, clientY: y }))
+	fire(a, 'dragstart')
+	fire(b, 'dragover')
+	fire(b, 'drop')
+	fire(a, 'dragend')
+	return 'ok'
+})
+await page.waitForTimeout(450)
+const afterCardDrag = (await navOrder()).filter((x) => x.startsWith('[chip'))
+check('管理页卡片能拖动排序', cardDrag === 'ok' && afterCardDrag.indexOf('[chip:界面增强]') < afterCardDrag.indexOf('[chip:开发工具]'), `${cardDrag} ${afterCardDrag.join(' / ')}`)
+
 // ---- 9.8 搜索 ----
 const typeSearch = async (q) => {
 	await page.fill('.dsg-search-input', q)
@@ -876,8 +899,12 @@ const wrapped = await page.evaluate(async () => {
 	// 插件这会儿应该已经抓到"dialog 被容器带走了"。
 	// 但 React 并不知道我们把节点挪过，直接不管会导致它卸载时 removeChild 报错 —— 放回原处。
 	parent.insertBefore(dialog, next)
-	await new Promise((r) => setTimeout(r, 80))
-	return document.querySelector('[data-dsg-ghost="1"]') !== null
+	// 观察器回调是异步的，给足窗口再判，别用固定 80ms 赌时序
+	for (let i = 0; i < 10; i += 1) {
+		await new Promise((r) => setTimeout(r, 50))
+		if (document.querySelector('[data-dsg-ghost="1"]') !== null) return true
+	}
+	return false
 })
 check('overlay 整体移除也能触发退场', wrapped === true, String(wrapped))
 await page.waitForTimeout(800)

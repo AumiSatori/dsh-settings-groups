@@ -735,7 +735,13 @@ window.__ModuleLoader__.load({
 				".dsg-hero-tag{flex:none;margin-top:6px;font-size:13px;line-height:18px;font-weight:600;color:var(--dsg-accent)}",
 				".dsg-subcard{display:flex;flex-direction:column;gap:6px;padding:16px 18px;border-radius:13px;background:rgba(127,127,127,.055);box-shadow:inset 0 1px 2px rgba(0,0,0,.03)}",
 				".dsg-card{display:flex;flex-direction:column;gap:14px;padding:20px 22px;border-radius:16px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid rgba(127,127,127,.1);box-shadow:0 1px 2px rgba(0,0,0,.05),0 6px 20px -6px rgba(0,0,0,.1)}",
-				".dsg-card[data-over=\"1\"]{border-color:var(--dsg-accent,#4a7cf5);background:color-mix(in srgb, var(--dsg-accent,#4a7cf5) 7%, transparent)}",
+				".dsg-card[data-over=\"1\"]{border-color:var(--dsg-accent,#5b5bf6);background:color-mix(in srgb, var(--dsg-accent,#5b5bf6) 5%, transparent)}",
+				".dsg-card[draggable=\"true\"]{cursor:grab;transition:transform .16s cubic-bezier(.2,.7,.3,1),box-shadow .16s ease,opacity .16s ease,border-color .15s ease}",
+				".dsg-card[draggable=\"true\"]:active{cursor:grabbing}",
+				// 「攥在手里」：抬起来一点、微微歪、阴影加重、整体压暗一丝
+				".dsg-card[data-dragging=\"1\"]{cursor:grabbing;position:relative;z-index:3;transform:scale(1.014) rotate(-.18deg);box-shadow:0 4px 10px rgba(0,0,0,.09),0 20px 44px -14px rgba(0,0,0,.22);opacity:.94}",
+				".dsg-card[data-insert=\"before\"]{box-shadow:inset 0 3px 0 -1px var(--dsg-accent,#5b5bf6),0 1px 2px rgba(0,0,0,.05),0 6px 20px -6px rgba(0,0,0,.1)}",
+				".dsg-card[data-insert=\"after\"]{box-shadow:inset 0 -3px 0 -1px var(--dsg-accent,#5b5bf6),0 1px 2px rgba(0,0,0,.05),0 6px 20px -6px rgba(0,0,0,.1)}",
 				".dsg-cardhead{display:flex;align-items:center;gap:8px;min-width:0}",
 				".dsg-cardname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-cardcount{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary,#999)}",
@@ -1705,6 +1711,17 @@ window.__ModuleLoader__.load({
 			};
 
 			/** 顶部固定项上移/下移（只在自己这一区里排，不进分组）。 */
+			/** 把某个分组挪到另一个分组的紧邻位置（拖拽用，一次到位）。 */
+			const moveGroupTo = (gid, targetGid, after) => {
+				if (gid === targetGid) return;
+				const list = resolvedTopOrder().filter((x) => !(x.kind === "group" && x.id === gid));
+				const at = list.findIndex((x) => x.kind === "group" && x.id === targetGid);
+				if (at < 0) return;
+				list.splice(after ? at + 1 : at, 0, { kind: "group", id: gid });
+				commitTopOrder(list);
+				save();
+			};
+
 			const moveCore = (id, delta) => {
 				const list = resolvedTopOrder();
 				const idx = list.findIndex((x) => x.kind === "core" && x.id === id);
@@ -1736,7 +1753,12 @@ window.__ModuleLoader__.load({
 				const [draft, setDraft] = React.useState("");
 				const [renaming, setRenaming] = React.useState(null); // gid
 				const [renameText, setRenameText] = React.useState("");
-				const [dragId, setDragId] = React.useState(null); // 被拖的条目
+				const [dragId, setDragId] = React.useState(null); // 被拖的条目（渲染用）
+				const [dragGid, setDragGid] = React.useState(null); // 被拖的分组卡片（渲染用）
+				// setState 是异步的：dragstart 与 drop 若在同一 tick 里连发，
+				// 事件处理里读 state 还是旧值 —— 真正判落点要用这两个 ref。
+				const dragIdRef = React.useRef(null);
+				const dragGidRef = React.useRef(null);
 				const [dropTarget, setDropTarget] = React.useState(null); // gid | "__loose" | "row:<id>:before"
 				const [flash, setFlash] = React.useState("");
 
@@ -1796,6 +1818,7 @@ window.__ModuleLoader__.load({
 					"data-dragging": dragId === id ? "1" : undefined,
 					"data-over": dropTarget !== null && dropTarget.startsWith(`row:${id}:`) ? dropTarget.split(":").at(-1) : undefined,
 					onDragStart: (e) => {
+						dragIdRef.current = id;
 						setDragId(id);
 						e.dataTransfer.effectAllowed = "move";
 						try {
@@ -1805,11 +1828,12 @@ window.__ModuleLoader__.load({
 						}
 					},
 					onDragEnd: () => {
+						dragIdRef.current = null;
 						setDragId(null);
 						setDropTarget(null);
 					},
 					onDragOver: (e) => {
-						if (dragId === null || dragId === id) return;
+						if (dragIdRef.current === null || dragIdRef.current === id) return;
 						e.preventDefault();
 						const rect = e.currentTarget.getBoundingClientRect();
 						const before = e.clientY < rect.top + rect.height / 2;
@@ -1817,13 +1841,14 @@ window.__ModuleLoader__.load({
 					},
 					onDrop: (e) => {
 						e.preventDefault();
-						if (dragId === null || dragId === id) return;
+						if (dragIdRef.current === null || dragIdRef.current === id) return;
 						const rect = e.currentTarget.getBoundingClientRect();
 						const before = e.clientY < rect.top + rect.height / 2;
 						const where = gid === undefined ? {} : { gid, anchorGid: gid };
 						if (before) where.before = id;
 						else where.after = id;
-						place(dragId, where);
+						place(dragIdRef.current, where);
+						dragIdRef.current = null;
 						setDragId(null);
 						setDropTarget(null);
 						commit();
@@ -1971,20 +1996,60 @@ window.__ModuleLoader__.load({
 					return h("div", {
 						key: g.id,
 						className: "dsg-card",
-						"data-over": isOver ? "1" : undefined,
+						// 整张卡片可拖：它和左边那个分组标签是同一个东西，凭什么小的能拖大的不能
+						draggable: true,
+						"data-dragging": dragGid === g.id ? "1" : undefined,
+						"data-over": isOver && dragGid === null ? "1" : undefined,
+						"data-insert": dropTarget !== null && dropTarget.startsWith(`grp:${g.id}:`) ? dropTarget.split(":").at(-1) : undefined,
+						onDragStart: (e) => {
+							dragGidRef.current = g.id;
+							setDragGid(g.id);
+							e.dataTransfer.effectAllowed = "move";
+							try {
+								e.dataTransfer.setData("text/plain", g.id);
+							} catch (_ignored) {
+								/* noop */
+							}
+						},
+						onDragEnd: () => {
+							dragGidRef.current = null;
+							setDragGid(null);
+							setDropTarget(null);
+						},
 						onDragOver: (e) => {
-							if (dragId === null) return;
+							// 拖分组：按上下半区决定插前还是插后
+							if (dragGidRef.current !== null) {
+								if (dragGidRef.current === g.id) return;
+								e.preventDefault();
+								const rect = e.currentTarget.getBoundingClientRect();
+								const before = e.clientY < rect.top + rect.height / 2;
+								setDropTarget(`grp:${g.id}:${before ? "before" : "after"}`);
+								return;
+							}
+							if (dragIdRef.current === null) return;
 							e.preventDefault();
 							setDropTarget(g.id);
 						},
 						onDragLeave: (e) => {
 							if (e.currentTarget.contains(e.relatedTarget)) return;
-							setDropTarget((cur) => (cur === g.id ? null : cur));
+							setDropTarget((cur) => (cur === g.id || (cur !== null && cur.startsWith(`grp:${g.id}:`)) ? null : cur));
 						},
 						onDrop: (e) => {
 							e.preventDefault();
-							if (dragId !== null) {
-								place(dragId, { gid: g.id, anchorGid: g.id });
+							if (dragGidRef.current !== null) {
+								if (dragGidRef.current === g.id) return;
+								const rect = e.currentTarget.getBoundingClientRect();
+								const after = e.clientY > rect.top + rect.height / 2;
+								moveGroupTo(dragGidRef.current, g.id, after);
+								dragGidRef.current = null;
+								setDragGid(null);
+								setDropTarget(null);
+								commit();
+								return;
+							}
+							if (dragIdRef.current !== null) {
+								place(dragIdRef.current, { gid: g.id, anchorGid: g.id });
+								dragIdRef.current = null;
 								setDragId(null);
 								setDropTarget(null);
 								commit(tPage("movedTo").replace("{name}", g.name));
@@ -2141,14 +2206,15 @@ window.__ModuleLoader__.load({
 					h("div", {
 						className: "dsg-section",
 						onDragOver: (e) => {
-							if (dragId === null) return;
+							if (dragIdRef.current === null) return;
 							e.preventDefault();
 							setDropTarget("__loose");
 						},
 						onDrop: (e) => {
 							e.preventDefault();
-							if (dragId !== null) {
-								place(dragId, {});
+							if (dragIdRef.current !== null) {
+								place(dragIdRef.current, {});
+								dragIdRef.current = null;
 								setDragId(null);
 								setDropTarget(null);
 								commit(tPage("movedOut"));
@@ -2173,14 +2239,15 @@ window.__ModuleLoader__.load({
 					h("div", {
 						className: "dsg-section",
 						onDragOver: (e) => {
-							if (dragId === null) return;
+							if (dragIdRef.current === null) return;
 							e.preventDefault();
 							setDropTarget("__hidden");
 						},
 						onDrop: (e) => {
 							e.preventDefault();
-							if (dragId !== null) {
-								hideEntry(dragId);
+							if (dragIdRef.current !== null) {
+								hideEntry(dragIdRef.current);
+								dragIdRef.current = null;
 								setDragId(null);
 								setDropTarget(null);
 								commit(tPage("hiddenDone"));
