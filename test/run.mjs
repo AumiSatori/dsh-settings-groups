@@ -594,17 +594,26 @@ check('左右留白对称且不贴边', Math.abs(symmetric.left - symmetric.righ
 check('搜索框比列表窄', symmetric.boxW < symmetric.listW, `${symmetric.boxW} < ${symmetric.listW}`)
 
 // 宿主的设置面板是纯黑白灰，搜索框不能自带一股蓝
+await page.evaluate(() => document.querySelector('.dsg-search-input').focus())
+await page.waitForTimeout(260) // 等 transition 跑完，否则读到的还是旧值
 const searchColors = await page.evaluate(() => {
 	const row = document.querySelector('.dsg-search-row')
-	const input = document.querySelector('.dsg-search-input')
-	input.focus()
 	const cs = getComputedStyle(row)
-	const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cs.borderTopColor) ?? []
-	const gray = m.length === 4 && Math.abs(Number(m[1]) - Number(m[2])) <= 2 && Math.abs(Number(m[2]) - Number(m[3])) <= 2
-	return { border: cs.borderTopColor, background: cs.backgroundColor, gray }
+	const grayOf = (str) => {
+		const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(str) ?? []
+		return m.length === 4 && Math.abs(Number(m[1]) - Number(m[2])) <= 2 && Math.abs(Number(m[2]) - Number(m[3])) <= 2
+	}
+	return {
+		border: cs.borderTopColor,
+		shadow: cs.boxShadow,
+		background: cs.backgroundColor,
+		borderGray: grayOf(cs.borderTopColor),
+		shadowGray: cs.boxShadow === 'none' || grayOf(cs.boxShadow),
+	}
 })
-check('聚焦时边框仍是中性灰', searchColors.gray, JSON.stringify(searchColors))
-check('聚焦时底色不染色', searchColors.background === 'rgba(0, 0, 0, 0)' || searchColors.background === 'transparent', searchColors.background)
+check('聚焦时有荧光圈', searchColors.shadow !== 'none' && searchColors.shadow.includes('3px'), JSON.stringify(searchColors.shadow))
+check('荧光是中性灰不是蓝', searchColors.shadowGray, searchColors.shadow)
+check('聚焦时边框仍是中性灰', searchColors.borderGray, searchColors.border)
 await page.evaluate(() => document.querySelector('.dsg-search-input').blur())
 
 const hitOne = await typeSearch('语音')

@@ -597,13 +597,15 @@ window.__ModuleLoader__.load({
 				// 早先是灰底方块，贴着顶边、还比下面的图标靠左，看着像误入的外来控件。
 				".dsg-search{display:flex;flex-direction:column;gap:2px;box-sizing:border-box;width:auto;margin:8px 6px}",
 				".dsg-search-row{display:flex;align-items:center;gap:7px;box-sizing:border-box;height:30px;padding:0 11px;border-radius:8px;border:1px solid rgba(127,127,127,.2);background:transparent;transition:border-color .16s ease,background .16s ease}",
-				// 全程只用中性灰：宿主的设置面板是纯黑白灰，插一个蓝色强调框进去
-				// 立刻显得像外挂控件。聚焦只把边框和图标压深一档，不换色也不加底色。
+				// 聚焦要有「荧光」反馈，但颜色得跟宿主统一 —— 宿主是纯黑白灰，
+				// 所以发光也做成灰的：边框压深 + 一圈向外扩散的淡灰 shadow，
+				// 效果和之前的蓝光一样明显，只是不跳色。
+				".dsg-search-row{transition:border-color .16s ease,box-shadow .2s ease,background .2s ease}",
 				".dsg-search-row:hover{border-color:rgba(127,127,127,.34)}",
-				".dsg-search-row:focus-within{border-color:rgba(127,127,127,.52)}",
+				".dsg-search-row:focus-within{border-color:rgba(127,127,127,.62);box-shadow:0 0 0 3px rgba(127,127,127,.13);background:rgba(127,127,127,.035)}",
 				".dsg-search-icon{flex:none;opacity:.55;transition:opacity .16s ease}",
 				".dsg-search-row:hover .dsg-search-icon{opacity:.75}",
-				".dsg-search-row:focus-within .dsg-search-icon{opacity:.92}",
+				".dsg-search-row:focus-within .dsg-search-icon{opacity:.95}",
 				".dsg-search-empty{padding:2px 2px 0;font-size:11.5px;line-height:18px;color:var(--dsw-alias-label-secondary,#999)}",
 				".dsg-search-input{flex:1;min-width:0;border:none;background:transparent;color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:12.5px;line-height:28px;outline:none;padding:0}",
 				".dsg-search-input::placeholder{color:var(--dsw-alias-label-tertiary,#aaa)}",
