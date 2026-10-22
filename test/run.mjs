@@ -521,6 +521,24 @@ await page.evaluate(() => {
 await page.waitForTimeout(500)
 check('固定项能放回来', (await navVisible()).includes('账号与余额'), (await navVisible()).slice(0, 4).join('/'))
 
+// ---- 9.7c 核心项在导航里直接拖，且拖完有 FLIP 过渡 ----
+const beforeDragCore = await navVisible()
+await dnd({ srcLabel: '插件', dstLabel: '模型', part: 'top' })
+const flipRunning = await page.evaluate(() => {
+	// FLIP 用 WAAPI 播，document.getAnimations() 能抓到正在跑的
+	return document.getAnimations().filter((a) => {
+		try {
+			return a.effect?.getKeyframes?.().some((k) => String(k.transform ?? '').includes('translate')) === true
+		} catch {
+			return false
+		}
+	}).length
+})
+await page.waitForTimeout(500)
+const afterDragCore = await navVisible()
+check('核心项能在导航里拖动', afterDragCore.indexOf('插件') < beforeDragCore.indexOf('插件'), `${beforeDragCore.slice(0, 4).join('/')} → ${afterDragCore.slice(0, 4).join('/')}`)
+check('拖完有 FLIP 过渡', flipRunning > 0, `running=${flipRunning}`)
+
 // ---- 9.8 搜索 ----
 const typeSearch = async (q) => {
 	await page.fill('.dsg-search-input', q)
@@ -612,12 +630,16 @@ await page.evaluate(() => {
 	const sw = document.querySelector('.dsg-switch')
 	if (sw !== null) sw.click()
 })
-await page.waitForTimeout(300)
+// 要等过「写盘节流 250ms + 一次轮询」：否则轮询可能读到上一轮测试写进磁盘的旧配置，
+// 把刚关掉的开关又覆盖回 true（表现为偶发的 "还有 chip 残留"）
+await page.waitForTimeout(900)
 const nativeState = await page.evaluate(() => ({
 	chips: document.querySelectorAll('.dsg-chip').length,
 	hidden: [...document.querySelectorAll('.nav-item')].filter((b) => b.style.display === 'none').length,
+	names: [...document.querySelectorAll('.dsg-chip')].map((c) => `${c.children[1]?.textContent}@${c.parentElement?.tagName}`),
+	enabled: JSON.parse(localStorage.getItem('dsh.settingsGroups.v1') ?? '{}').enabled,
 }))
-check('关掉总开关后无 chip 残留', nativeState.chips === 0, `chips=${nativeState.chips}`)
+check('关掉总开关后无 chip 残留', nativeState.chips === 0, `chips=${nativeState.chips} ${JSON.stringify(nativeState.names)}`)
 check('关掉总开关后条目全部可见', nativeState.hidden === 0, `hidden=${nativeState.hidden}`)
 
 // ---- 11. 设置面板可调（原 dsh-settings-panel-tweak 补丁的活）----

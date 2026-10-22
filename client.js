@@ -1038,7 +1038,7 @@ window.__ModuleLoader__.load({
 				btn.addEventListener("dragstart", (e) => {
 					const id = buttonId(btn);
 					if (id === undefined) return;
-					dragPayload = { kind: "item", id };
+					dragPayload = { kind: "item", id, core: isCore(id) };
 					btn.dataset.dsgDragging = "1";
 					e.dataTransfer.effectAllowed = "move";
 					try {
@@ -1070,10 +1070,9 @@ window.__ModuleLoader__.load({
 				}
 				const btn = raw.closest?.("button");
 				if (btn === null || btn === undefined) return null;
-				if (isCore(buttonId(btn) ?? "")) return null;
 				const id = buttonId(btn);
 				if (id === undefined) return null;
-				return { kind: "item", el: btn, id };
+				return { kind: "item", el: btn, id, core: isCore(id) };
 			};
 
 			const clearDropMarks = () => {
@@ -1110,6 +1109,9 @@ window.__ModuleLoader__.load({
 				}
 				// 条目
 				if (hit.kind === "chip" || hit.kind === "loose") return "into";
+				// 顶部固定项和普通条目不能互串：前者只在自己那一区里排，后者不进核心区
+				if (dragPayload.core === true && hit.core !== true) return null;
+				if (dragPayload.core !== true && hit.core === true) return null;
 				const rect = hit.el.getBoundingClientRect();
 				return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
 			};
@@ -1127,6 +1129,18 @@ window.__ModuleLoader__.load({
 					return;
 				}
 				const id = dragPayload.id;
+				if (dragPayload.core === true) {
+					// 拖的是顶部固定项：只重排 coreOrder，不碰分组
+					const list = coreIds();
+					const from = list.indexOf(id);
+					if (from < 0) return;
+					list.splice(from, 1);
+					const at = list.indexOf(hit.id);
+					if (at < 0) return;
+					list.splice(mode === "after" ? at + 1 : at, 0, id);
+					state.coreOrder = list;
+					return;
+				}
 				if (hit.kind === "chip") {
 					place(id, { gid: hit.gid, anchorGid: hit.gid });
 					const g = groupById(hit.gid);
@@ -1148,20 +1162,61 @@ window.__ModuleLoader__.load({
 				return;
 			};
 
+			/** 记下当前所有导航项的位置，拖完用来做 FLIP。 */
+			const snapshotRects = () => {
+				const nav = findNavList();
+				const map = new Map();
+				if (nav === null) return map;
+				for (const child of nav.children) {
+					if (child.tagName !== "BUTTON") continue;
+					map.set(child, child.getBoundingClientRect());
+				}
+				return map;
+			};
+
+			/**
+			 * FLIP：让重排后的元素从「原来的位置」滑到「新位置」。
+			 *
+			 * 没有这一步，拖完一次分组，chip 和它底下那一排条目会整体瞬移到位 ——
+			 * 眼睛跟不上，看着像闪了一下。用 WAAPI 而不是改 inline style：
+			 * 不动元素自身的 transform（那个归显隐动画用），播完自动清理。
+			 */
+			const flipRects = (before) => {
+				for (const [el, oldRect] of before) {
+					if (!el.isConnected) continue;
+					// 正在播显隐动画的别抢它的 transform
+					if (el.dataset.dsgAnim !== undefined) continue;
+					const newRect = el.getBoundingClientRect();
+					const dx = oldRect.left - newRect.left;
+					const dy = oldRect.top - newRect.top;
+					if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+					try {
+						el.animate(
+							[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
+							{ duration: 300, easing: "cubic-bezier(.2,.7,.3,1)" },
+						);
+					} catch (_ignored) {
+						/* 不支持 WAAPI 就直接跳，不影响功能 */
+					}
+				}
+			};
+
 			const onDrop = (e) => {
 				if (dragPayload === null) return;
 				const hit = hitTest(e.clientX, e.clientY);
-				if (hit !== null) {
-					const mode = decideDrop(hit, e);
-					if (mode !== null) {
-						e.preventDefault();
-						applyDrop(hit, mode, e);
-					}
+				const mode = hit === null ? null : decideDrop(hit, e);
+				let before = null;
+				if (hit !== null && mode !== null) {
+					e.preventDefault();
+					before = snapshotRects();
+					applyDrop(hit, mode, e);
 				}
 				dragPayload = null;
 				clearDropMarks();
 				save();
 				sync(true);
+				// 必须在 sync 之后：这时 DOM 已经重排完，量到的是新位置
+				if (before !== null) flipRects(before);
 				notifyPage();
 			};
 
@@ -1370,11 +1425,11 @@ window.__ModuleLoader__.load({
 
 			/** 关掉总开关时：把导航还原成宿主原生顺序与显隐。 */
 			const restoreNative = (nav) => {
-				for (const [gid, el] of [...chips]) {
-					el.remove();
-					chips.delete(gid);
-				}
-				if (looseChip !== null && looseChip.parentNode !== null) looseChip.remove();
+				// 不只遍历 chips 这张表：nav 重建过的话表里会丢条目，
+				// 而 DOM 里的旧 chip 还挂着 —— 直接扫一遍最稳
+				for (const el of document.querySelectorAll(".dsg-chip")) el.remove();
+				chips.clear();
+				looseChip = null;
 				if (searchBox !== null && searchBox.parentNode !== null) searchBox.remove();
 				delete nav.dataset.dsgSearch;
 				for (const el of nav.querySelectorAll("[data-dsg-hit]")) delete el.dataset.dsgHit;
@@ -1426,20 +1481,10 @@ window.__ModuleLoader__.load({
 					}
 					syncRefs(nav);
 					bindNavDnd(nav);
-					// 给可拖条目绑定拖拽
+					// 所有条目都能拖：普通条目改分组/未分组，顶部固定项只在自己那区里换位
 					for (const r of rows) {
-						if (isCore(r.id)) continue;
 						const btn = refs.get(r.id);
 						if (btn !== undefined) bindItemDrag(btn);
-					}
-					// 核心项不该被拖
-					for (const r of rows) {
-						if (!isCore(r.id)) continue;
-						const btn = refs.get(r.id);
-						if (btn !== undefined) {
-							btn.draggable = false;
-							delete btn.dataset.dsgItem;
-						}
 					}
 					layout(nav);
 					applyVisibility(animate);
@@ -1519,9 +1564,8 @@ window.__ModuleLoader__.load({
 				return () => {
 					observer.disconnect();
 					if (stormTimer !== null) clearTimeout(stormTimer);
-					for (const [, el] of chips) el.remove();
+					for (const el of document.querySelectorAll(".dsg-chip")) el.remove();
 					chips.clear();
-					if (looseChip !== null) looseChip.remove();
 					looseChip = null;
 					if (searchBox !== null) searchBox.remove();
 					searchBox = null;
