@@ -592,7 +592,7 @@ window.__ModuleLoader__.load({
 				// —— 搜索框：跟 chip 一样高，不占地方 ——
 				// 搜索框：细边框 + 放大镜，跟宿主导航项（前面都带图标）同一路子。
 				// 早先是灰底方块，贴着顶边、还比下面的图标靠左，看着像误入的外来控件。
-				".dsg-search{display:flex;flex-direction:column;gap:2px;box-sizing:border-box;width:100%;margin:8px 0 8px}",
+				".dsg-search{display:flex;flex-direction:column;gap:2px;box-sizing:border-box;width:auto;margin:8px 6px}",
 				".dsg-search-row{display:flex;align-items:center;gap:7px;box-sizing:border-box;height:30px;padding:0 11px;border-radius:8px;border:1px solid rgba(127,127,127,.2);background:transparent;transition:border-color .16s ease,background .16s ease}",
 				".dsg-search-row:hover{border-color:rgba(127,127,127,.34)}",
 				".dsg-search-row:focus-within{border-color:var(--dsw-alias-state-info-primary,#4a7cf5);background:color-mix(in srgb, var(--dsw-alias-state-info-primary,#4a7cf5) 5%, transparent)}",

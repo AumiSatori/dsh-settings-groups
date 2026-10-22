@@ -549,6 +549,24 @@ check('搜索框带放大镜图标', searchBox.hasIcon && searchBox.iconShapes =
 check('搜索框有细边框', searchBox.borderWidth === '1px', searchBox.borderWidth)
 check('搜索框高度 30px', searchBox.rowH === 30, `${searchBox.rowH}px`)
 
+// 左右留白要一样，不能一边贴死另一边空着
+const symmetric = await page.evaluate(() => {
+	const box = document.querySelector('.dsg-search')
+	const list = box.parentElement
+	const cs = getComputedStyle(box)
+	const boxRect = box.getBoundingClientRect()
+	const listRect = list.getBoundingClientRect()
+	return {
+		left: Math.round(boxRect.left - listRect.left),
+		right: Math.round(listRect.right - boxRect.right),
+		margin: `${cs.marginLeft}/${cs.marginRight}`,
+		listW: Math.round(listRect.width),
+		boxW: Math.round(boxRect.width),
+	}
+})
+check('左右留白对称且不贴边', Math.abs(symmetric.left - symmetric.right) <= 1 && symmetric.left > 0, JSON.stringify(symmetric))
+check('搜索框比列表窄', symmetric.boxW < symmetric.listW, `${symmetric.boxW} < ${symmetric.listW}`)
+
 const hitOne = await typeSearch('语音')
 check('搜索只剩命中项', hitOne.length === 1 && hitOne[0] === '语音朗读', hitOne.join(' / '))
 
