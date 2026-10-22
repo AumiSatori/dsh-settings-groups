@@ -271,11 +271,18 @@ const mid = await page.evaluate(() => new Promise((resolve) => {
 	chip.click()
 	const samples = []
 	let n = 0
+	let midTransform = 'none'
+	let midFilter = 'none'
 	const tick = () => {
 		samples.push(Math.round(item.getBoundingClientRect().height))
+		// 属性要在动画中途读：等 7 次采样完（280ms）动画早就结束，拿到的永远是终值
+		if (n === 2) {
+			const cs = getComputedStyle(item)
+			midTransform = cs.transform
+			midFilter = cs.filter
+		}
 		if (++n < 7) setTimeout(tick, 40)
 		else {
-			const cs = getComputedStyle(item)
 			resolve({
 				h0: Math.round(h0),
 				midH: samples[1] ?? 0,
@@ -283,8 +290,8 @@ const mid = await page.evaluate(() => new Promise((resolve) => {
 				samples,
 				y0: Math.round(y0),
 				midY: Math.round(below.getBoundingClientRect().top),
-				filter: cs.filter,
-				transform: cs.transform,
+				filter: midFilter,
+				transform: midTransform,
 			})
 		}
 	}
@@ -292,8 +299,9 @@ const mid = await page.evaluate(() => new Promise((resolve) => {
 }))
 check('收起过程中高度在塌陷', mid.midH > 0 && mid.midH < mid.h0, `${mid.h0}px → ${mid.midH}px`)
 check('下方内容跟着上移', mid.midY < mid.y0, `未分组 top ${mid.y0} → ${mid.midY}`)
-check('收起过程中带模糊滤镜', /blur/.test(mid.filter), mid.filter)
-check('收起过程中带缩放位移', mid.transform !== 'none' && mid.transform !== 'matrix(1, 0, 0, 1, 0, 0)', mid.transform)
+// 为了流畅度，动画里已经不再用 blur/scale（每帧重新栅格化太贵），只留 translateY
+check('动画里没有滤镜', !/blur/.test(mid.filter), mid.filter)
+check('收起过程中带位移', mid.transform !== 'none' && mid.transform !== 'matrix(1, 0, 0, 1, 0, 0)', mid.transform)
 // 这条才是「有没有占位」的判据：动画快结束时元素必须真的没高度了。
 // 元素带 padding / min-height 时 border-box 下 height:0 也压不平，会留一截到最后一刻才消失。
 check('收起末尾高度归零', mid.tail <= 2, `采样 ${JSON.stringify(mid.samples)}`)

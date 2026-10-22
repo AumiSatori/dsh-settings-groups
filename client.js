@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
 		/** 需要注入的客户端服务。 */
 		const inject = ["slots", "locale"];
 		/** 过渡时长（与 CSS 的 .26s 对齐）。 */
-		const ANIM_MS = 260;
+		const ANIM_MS = 220;
 		/** 拖拽载荷 MIME（自用，不依赖 text/plain）。 */
 		const DND_MIME = "application/x-dsh-settings-groups";
 
@@ -656,12 +656,15 @@ window.__ModuleLoader__.load({
 				// ⚠️ padding **不要**放进 keyframes。padding 每帧都会重算布局，和 height 叠加
 				// 之后整条动画明显发涩（实测主人反馈"收回下拉都卡"）。改成动画前一次性归零，
 				// 只让 height 走动画 —— 塌得干净，也不拖帧。
-				"@keyframes dsgItemIn{from{height:0;opacity:0;filter:blur(3px);transform:scale(.86) translateY(-6px)}to{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}}",
-				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);opacity:1;filter:blur(0);transform:none}to{height:0;opacity:0;filter:blur(3px);transform:scale(.86) translateY(-6px)}}",
+				// 只留三种最便宜的属性：height（重排，躲不掉）、opacity、translateY（合成层）。
+				// 之前还有 filter:blur + scale —— 这两个每帧都要重新栅格化，
+				// 和 layout 叠在同一条动画里就是"卡"的主要来源，砍掉后明显顺。
+				"@keyframes dsgItemIn{from{height:0;opacity:0;transform:translateY(-4px)}to{height:var(--dsg-h,40px);opacity:1;transform:none}}",
+				"@keyframes dsgItemOut{from{height:var(--dsg-h,40px);opacity:1;transform:none}to{height:0;opacity:0;transform:translateY(-4px)}}",
 				// contain:layout 把每个条目的重排圈在它自己内部 —— 多条目同时动画时，
 				// 少了它父容器要跟着重算 N 次，就是「卡」的主要来源之一。
-				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
-				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .26s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
+				"[data-dsg-item][data-dsg-anim=\"in\"]{animation:dsgItemIn .22s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
+				"[data-dsg-item][data-dsg-anim=\"out\"]{animation:dsgItemOut .22s var(--dsg-ease,cubic-bezier(.2,.7,.3,1)) both;overflow:hidden;box-sizing:border-box;min-height:0 !important;contain:layout style}",
 				// —— 管理页 ——
 				".dsg-page{display:flex;flex-direction:column;gap:14px;box-sizing:border-box;width:100%;max-width:560px;min-width:0;font-size:13px}",
 				".dsg-card{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.18))}",
@@ -1260,13 +1263,13 @@ window.__ModuleLoader__.load({
 			};
 
 			/**
-			 * 入场：keyframes 驱动（height + opacity + blur + transform 一条动画），
+			 * 入场：keyframes 驱动（height + opacity + translateY 一条动画），
 			 * 不用 transition —— display:none 恢复的那一帧浏览器认为元素"刚出生"，
 			 * 没有前值可插值，transition 直接不跑。
 			 */
 			const animateIn = (list) => {
 				list.forEach((btn, i) => {
-					const delay = Math.min(i * 22, 110);
+					const delay = Math.min(i * 26, 120);
 					btn.style.display = "";
 					resetItemStyles(btn);
 					const rect = btn.getBoundingClientRect();
@@ -1300,7 +1303,7 @@ window.__ModuleLoader__.load({
 			 */
 			const animateOut = (list) => {
 				list.forEach((btn, i) => {
-					const delay = Math.min(i * 10, 70);
+					const delay = Math.min(i * 14, 80);
 					const rect = btn.getBoundingClientRect();
 					const h = Math.max(1, rect.height);
 					btn.style.setProperty("--dsg-h", `${Math.round(h)}px`);
