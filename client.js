@@ -727,7 +727,7 @@ window.__ModuleLoader__.load({
 				// 管理页是「我自己的页面」，可以用自己的设计语言（导航区还是得跟宿主灰调）：
 				// 大圆角卡片 + 超大标题 + 浅灰子卡片 + 紫蓝强调色 + 状态徽章。
 				// 强调色走宿主变量，深色主题自动跟着换。
-				".dsg-page{--dsg-accent:var(--dsw-alias-state-info-primary,#5b5bf6);display:flex;flex-direction:column;gap:18px;box-sizing:border-box;width:100%;max-width:100%;min-width:0;font-size:14px}",
+				".dsg-page{overflow-anchor:none;--dsg-accent:var(--dsw-alias-state-info-primary,#5b5bf6);display:flex;flex-direction:column;gap:18px;box-sizing:border-box;width:100%;max-width:100%;min-width:0;font-size:14px}",
 				".dsg-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:2px 2px 8px}",
 				".dsg-hero-left{display:flex;align-items:flex-start;gap:12px;min-width:0}",
 				".dsg-hero-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:11px;background:color-mix(in srgb, var(--dsg-accent,#5b5bf6) 11%, transparent);color:var(--dsg-accent,#5b5bf6)}",
@@ -1210,35 +1210,8 @@ window.__ModuleLoader__.load({
 					if (key === lastKey) return;
 					lastKey = key;
 					if (hit === null) return;
-					// 先记位置，重排之后做 FLIP —— 不然卡片是「啪」地跳到新位置，
-					// 跟左边导航里那种"滑开让位"完全两种手感。
-					const before = new Map();
-					for (const card of document.querySelectorAll(".dsg-page .dsg-card")) {
-						if (card === el) continue;
-						if (card.querySelector(".dsg-cardname") === null) continue;
-						before.set(card, card.getBoundingClientRect());
-					}
 					moveGroupTo(gid, hit);
 					notifyPage();
-					requestAnimationFrame(() => {
-						requestAnimationFrame(() => {
-							for (const [card, oldRect] of before) {
-								if (!card.isConnected) continue;
-								const now = card.getBoundingClientRect();
-								const dx = oldRect.left - now.left;
-								const dy = oldRect.top - now.top;
-								if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
-								try {
-									card.animate(
-										[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
-										{ duration: 280, easing: "cubic-bezier(.2,.7,.3,1)" },
-									);
-								} catch (_ignored) {
-									/* 不支持 WAAPI 就直接跳 */
-								}
-							}
-						});
-					});
 				};
 
 				const onUp = () => cleanup();
@@ -2411,23 +2384,14 @@ window.__ModuleLoader__.load({
 				save();
 			};
 
-			/** 分组上移/下移：在混排序列里走，一格就是导航上的一行。 */
+			/** 分组上移/下移：管理页每次移动到相邻分组旁边，跳过混排中的固定项。 */
 			const moveGroup = (gid, delta) => {
-				const list = resolvedTopOrder();
-				const idx = list.findIndex((x) => x.kind === "group" && x.id === gid);
-				const to = idx + delta;
-				if (idx < 0 || to < 0 || to >= list.length) return;
-				const [moved] = list.splice(idx, 1);
-				list.splice(to, 0, moved);
-				commitTopOrder(list);
-				save();
+				const groups = resolvedTopOrder().filter((x) => x.kind === "group");
+				const index = groups.findIndex((x) => x.id === gid);
+				const target = groups[index + delta];
+				if (index >= 0 && target !== undefined) moveGroupTo(gid, { gid: target.id, after: delta > 0 });
 			};
 
-			/** 顶部固定项上移/下移（只在自己这一区里排，不进分组）。 */
-			/**
-			 * 把某个分组挪到目标旁边（目标可以是另一个分组，也可以是核心项）。
-			 * @param {{gid?: string, coreId?: string, after?: boolean}} target
-			 */
 			/** 记下管理页所有卡片/行的位置，用来给 ↑↓ 做过渡。 */
 			const snapshotPage = () => {
 				const map = new Map();
@@ -2437,39 +2401,42 @@ window.__ModuleLoader__.load({
 				return map;
 			};
 
-			/**
-			 * 让管理页的元素从旧位置滑到新位置。
-			 * 必须等 React 重渲染完再量 —— 所以延到下一帧之后。
-			 */
+			// 在 React 提交新顺序前保留当前画面，layout effect 在浏览器绘制前接上动画。
+			let pendingPageFlip = null;
 			const flipPage = (before) => {
-				const apply = () => {
-					const moves = new Map();
-					for (const [el, oldRect] of before) {
-						if (!el.isConnected) continue;
-						const now = el.getBoundingClientRect();
-						moves.set(el, { dx: oldRect.left - now.left, dy: oldRect.top - now.top });
-					}
-					for (const [el, delta] of moves) {
-						if (el.dataset.dsgPageDragging === "1") continue;
-						// 行所在的卡片也会让位；减去父级位移，避免同一距离播两遍。
-						const parent = el.classList.contains("dsg-row") ? moves.get(el.closest(".dsg-card")) : null;
-						const dx = delta.dx - (parent?.dx ?? 0);
-						const dy = delta.dy - (parent?.dy ?? 0);
-						if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
-						try {
-							for (const motion of el.getAnimations()) if (motion.id === "dsg-page-reorder") motion.cancel();
-							el.animate(
-								[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
-								{ id: "dsg-page-reorder", duration: 240, easing: "cubic-bezier(.2,.7,.3,1)" },
-							);
-						} catch (_ignored) {
-							/* 不支持 WAAPI 就直接跳 */
-						}
-					}
-				};
-				requestAnimationFrame(() => {
-					requestAnimationFrame(apply);
-				});
+				if (before.size === 0) return;
+				if (pendingPageFlip === null) pendingPageFlip = new Map();
+				for (const [el, rect] of before) if (!pendingPageFlip.has(el)) pendingPageFlip.set(el, rect);
+			};
+			const playPageFlip = () => {
+				const before = pendingPageFlip;
+				pendingPageFlip = null;
+				if (before === null) return;
+				// 连点时先采过当前画面，再撤掉旧动画读真实终点，避免两段变换相互叠加。
+				for (const el of before.keys()) {
+					if (!el.isConnected) continue;
+					for (const motion of el.getAnimations()) if (motion.id === "dsg-page-reorder") motion.cancel();
+				}
+				if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+				const moves = new Map();
+				for (const [el, oldRect] of before) {
+					if (!el.isConnected) continue;
+					const now = el.getBoundingClientRect();
+					moves.set(el, { dx: oldRect.left - now.left, dy: oldRect.top - now.top });
+				}
+				for (const [el, delta] of moves) {
+					if (el.dataset.dsgPageDragging === "1" || el.style.opacity === "0.25") continue;
+					// 行所在的卡片也会补位；行只播放相对卡片的那部分位移。
+					const parent = el.classList.contains("dsg-row") ? moves.get(el.closest(".dsg-card")) : null;
+					const dx = delta.dx - (parent?.dx ?? 0), dy = delta.dy - (parent?.dy ?? 0);
+					if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+					try {
+						el.animate(
+							[{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
+							{ id: "dsg-page-reorder", duration: 280, easing: "cubic-bezier(.2,.7,.3,1)" },
+						);
+					} catch (_ignored) { /* 不支持 WAAPI 时保留排序结果。 */ }
+				}
 			};
 
 			/** 把某个核心项挪到目标旁边（目标是核心项或分组都行）。 */
@@ -2516,11 +2483,13 @@ window.__ModuleLoader__.load({
 				const idx = list.indexOf(id);
 				const to = idx + delta;
 				if (idx < 0 || to < 0 || to >= list.length) return;
+				const before = snapshotPage();
 				list.splice(idx, 1);
 				list.splice(to, 0, id);
 				if (g === undefined) state.loose = list;
 				else g.entries = list;
 				save();
+				flipPage(before);
 			};
 
 			function GroupsPage(props) {
@@ -2539,10 +2508,11 @@ window.__ModuleLoader__.load({
 				const [dropTarget, setDropTarget] = React.useState(null); // gid | "__loose" | "row:<id>:before"
 				const [flash, setFlash] = React.useState("");
 
+				React.useLayoutEffect(() => { playPageFlip(); });
 				React.useEffect(() => {
 					const bump = () => setTick((v) => v + 1);
 					pageListeners.add(bump);
-					return () => { pageListeners.delete(bump); pageRowDrag?.cleanup(); };
+					return () => { pageListeners.delete(bump); pageRowDrag?.cleanup(); pendingPageFlip = null; };
 				}, []);
 
 				React.useEffect(() => {

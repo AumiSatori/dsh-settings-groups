@@ -1328,7 +1328,7 @@ const commandRow = await dragPage.locator('[data-dsg-entry="dsh-commandcode"]').
 await dragPage.mouse.move(commandRow.x + 60, commandRow.y + commandRow.height - 3, { steps: 4 })
 await dragPage.waitForTimeout(120)
 check('组内条目未松手就完成排序', JSON.stringify(await entryIds('ga')) === JSON.stringify(['dsh-commandcode', 'dsh-read-aloud']), JSON.stringify(await entryIds('ga')))
-const sawRowFlip = await dragPage.evaluate(() => document.getAnimations().some((a) => a.id === 'dsg-page-reorder'))
+const sawRowFlip = await dragPage.locator('[data-dsg-entry="dsh-commandcode"]').evaluate((n) => n.getAnimations().some((a) => a.id === 'dsg-page-reorder'))
 check('条目让位时有平滑移动动画', sawRowFlip)
 await dragPage.mouse.up()
 await dragPage.waitForTimeout(300)
@@ -1345,6 +1345,48 @@ check('松手后浮层与拖动占位全部清理', await dragPage.locator('[dat
 await dragPage.reload({ waitUntil: 'load' })
 await dragPage.waitForTimeout(500)
 check('固定项和跨组排序刷新后保留', (await pinIds())[0] === 'account' && (await entryIds('gb')).includes('dsh-read-aloud'))
+
+// 真正检查按钮重排的中间位置，避免只挂了动画却仍先跳到终点。
+const sampleButtonMove = async (selector, title) => {
+	await dragPage.locator(selector).scrollIntoViewIfNeeded()
+	return dragPage.evaluate(async ({ selector, title }) => {
+		const node = document.querySelector(selector)
+		const y0 = node.getBoundingClientRect().top
+		node.querySelector(`button[title="${title}"]`).click()
+		await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+		const firstY = node.getBoundingClientRect().top
+		const running = node.getAnimations().some((a) => a.id === 'dsg-page-reorder' && a.playState === 'running')
+		await new Promise((r) => setTimeout(r, 80))
+		const midY = node.getBoundingClientRect().top
+		await new Promise((r) => setTimeout(r, 300))
+		return { y0, firstY, midY, endY: node.getBoundingClientRect().top, running }
+	}, { selector, title })
+}
+const isSmoothMove = (r) => r.running && Math.abs(r.endY - r.y0) > 2 &&
+	Math.abs(r.firstY - r.endY) > 1 && r.midY > Math.min(r.y0, r.endY) + .1 && r.midY < Math.max(r.y0, r.endY) - .1
+for (const [name, selector] of [['固定项', '[data-dsg-pin="account"]'], ['组内条目', '[data-dsg-entry="dsh-meme"]'], ['分组', '[data-dsg-gid="ga"] .dsg-cardhead']]) {
+	// 分组动画在整张卡片上，按钮位于头部。
+	const nodeSelector = name === '分组' ? '.dsg-page .dsg-card[data-dsg-gid="ga"]' : selector
+	for (const title of ['下移', '上移']) {
+		const motion = await sampleButtonMove(nodeSelector, title)
+		check(`${name}点击${title}时平滑滑到新位置`, isSmoothMove(motion), JSON.stringify(motion))
+	}
+}
+const rapidButtons = await dragPage.evaluate(async () => {
+	const row = document.querySelector('[data-dsg-pin="account"]')
+	row.querySelector('[title="下移"]').click()
+	await new Promise((r) => setTimeout(r, 70))
+	row.querySelector('[title="上移"]').click()
+	await new Promise((r) => setTimeout(r, 60))
+	const count = row.getAnimations().filter((a) => a.id === 'dsg-page-reorder').length
+	await new Promise((r) => setTimeout(r, 330))
+	return { count, first: document.querySelector('.dsg-page [data-dsg-pin]').dataset.dsgPin }
+})
+check('连点反向只保留一段补位动画且最终顺序正确', rapidButtons.count <= 1 && rapidButtons.first === 'account', JSON.stringify(rapidButtons))
+await dragPage.emulateMedia({ reducedMotion: 'reduce' })
+await dragPage.locator('[data-dsg-pin="account"] button[title="下移"]').click()
+await dragPage.waitForTimeout(80)
+check('减少动态效果时排序立即生效并跳过补位动画', (await pinIds())[1] === 'account' && await dragPage.evaluate(() => !document.getAnimations().some((a) => a.id === 'dsg-page-reorder')))
 await dragContext.close()
 
 check('全程无 JS 报错', errors.length === 0, errors.slice(0, 3).join(' | '))

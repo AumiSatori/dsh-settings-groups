@@ -45,6 +45,10 @@ node scripts/profile.mjs uninstall --profile desktop
 
 装完**重启 DSH**（宿主端要加载新插件）。只改 `client.js` 的话，窗口里 `Ctrl+R` 就够。
 
+### 0.1.8：补位与上下移按钮动画
+
+管理页的固定项、组内条目、未分组条目和分组卡片共用 280ms 平滑补位动画；点击上移 / 下移同样滑到新位置。重排动画在 React 提交后、浏览器绘制前启动，避免先跳到终点再回弹；连续反向点击从当前画面接续，开启「减少动态效果」时直接完成排序。分组按钮每次移动到相邻分组，跳过中间混排的固定项。
+
 ### 0.1.7：管理页排序与跟手拖动
 
 顶部固定项与左侧导航共用排序来源，上移 / 下移会跳过中间的分组，立即更新管理页。固定项、组内条目和未分组条目统一使用跟手拖动：鼠标按住移动或长按 250ms 抓起，经过其他行时实时让位；条目可以跨组移动、拖回未分组或拖入已隐藏。触屏可从抓手拖动，普通区域移动仍可滚动。短按释放会取消等待，跨组重建与松手后会清理浮层。
@@ -139,7 +143,7 @@ node scripts/profile.mjs uninstall --profile desktop
 
 ```sh
 npm i -D playwright react@18 react-dom@18   # 只有跑测试才需要
-node test/run.mjs            # 真 Chromium 跑 147 项断言
+node test/run.mjs            # 真 Chromium 跑 155 项断言
 node test/host.mjs           # 宿主端路由单测（10 项，不启 DSH）
 node test/record.mjs         # 重新录 README 的动图（要 ffmpeg）
 ```
