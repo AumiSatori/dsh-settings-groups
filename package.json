@@ -1,6 +1,6 @@
 {
   "name": "dsh-settings-groups",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "private": true,
   "type": "module",
   "description": "DeepSeek Harness 设置管理：设置导航分组、排序、隐藏和面板调整，支持全部动效一键开关。 / Settings management with sidebar groups, sorting, visibility, panel controls and an animation switch.",

@@ -129,7 +129,7 @@ check('核心项排在最前', initial[0] === '账号与余额' && initial[1] ==
 check('管理页入口已注册', initial.includes('设置管理'), initial.join(' / '))
 
 // ---- 3. 新建分组（走管理页真实输入框）----
-const input = page.locator('.dsg-input').first()
+const input = page.locator('.dsg-new .dsg-input')
 await input.fill('界面增强')
 await input.press('Enter')
 await page.waitForTimeout(250)
@@ -727,8 +727,8 @@ await page.waitForTimeout(300)
 
 // ---- 9.7d2 删除分组要就地确认 ----
 // 用一个临时分组来删，别动后面测试要用的「界面增强」
-await page.locator('.dsg-input').first().fill('待删测试')
-await page.locator('.dsg-input').first().press('Enter')
+await page.locator('.dsg-new .dsg-input').fill('待删测试')
+await page.locator('.dsg-new .dsg-input').press('Enter')
 await page.waitForTimeout(300)
 
 const delFlow = await page.evaluate(async () => {
@@ -770,6 +770,8 @@ const cardDrag = await page.evaluate(async () => {
 	const a = byName('界面增强')
 	const b = byName('开发工具')
 	if (a === undefined || b === undefined) return 'missing'
+	b.scrollIntoView({ block: 'start' })
+	await new Promise(requestAnimationFrame)
 	const ar = a.getBoundingClientRect()
 	const br = b.getBoundingClientRect()
 	const sx = ar.left + 40
@@ -1327,6 +1329,9 @@ check('固定项上移后导航与管理页一致', JSON.stringify(await pinIds(
 const startMouseRow = async (selector, hold = 280) => {
 	const row = dragPage.locator(selector)
 	await row.scrollIntoViewIfNeeded()
+	// 保持落点远离自动滚动边缘，避免新增设置项后坐标在拖动中漂移。
+	await row.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }))
+	await dragPage.waitForTimeout(40)
 	const r = await row.boundingBox()
 	await dragPage.mouse.move(r.x + 10, r.y + r.height / 2)
 	await dragPage.mouse.down()
@@ -1754,6 +1759,118 @@ check('系统恢复动效后自动恢复用户已开启的偏好', await motionP
 await motionPage.evaluate(() => { for (const fn of window.__effectCleanups) if (typeof fn === 'function') fn() })
 check('停用插件后清除动效开关的全局标记和样式', await motionPage.locator('style[data-dsg-motion-style]').count() === 0 && await motionPage.evaluate(() => !document.documentElement.hasAttribute('data-dsg-motion')))
 await motionContext.close()
+
+// ---- 19. 导航拖动开关、可配置长按时间及双端恢复 ----
+const sidebarContext = await browser.newContext({ viewport: { width: 1300, height: 1200 } })
+const sidebarPage = await sidebarContext.newPage()
+sidebarPage.on('pageerror', (error) => errors.push(String(error)))
+await page.evaluate(() => fetch('/__reset'))
+await sidebarPage.addInitScript(() => {
+	if (sessionStorage.getItem('sidebar-seeded')) return
+	sessionStorage.setItem('sidebar-seeded', '1')
+	localStorage.setItem('dsh.settingsGroups.v1', JSON.stringify({ v: 1, enabled: true, updatedAt: Date.now(), groups: [
+		{ id: 'st', name: '拖动测试', entries: ['dsh-commandcode', 'dsh-read-aloud'], open: true },
+	], loose: [], hidden: [] }))
+})
+await sidebarPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' })
+await sidebarPage.waitForTimeout(600)
+const sidebarToggle = () => sidebarPage.getByRole('switch', { name: '左侧设置栏长按拖动', exact: true })
+const delayField = () => sidebarPage.getByRole('textbox', { name: '长按等待时间', exact: true })
+check('旧配置升级后默认允许导航拖动且等待250ms', await sidebarToggle().getAttribute('aria-checked') === 'true' && await delayField().inputValue() === '250')
+check('拖动配置使用自绘开关和文本框，无原生选择或勾选控件', await sidebarPage.locator('.dsg-page select,.dsg-page input[type=checkbox],.dsg-page input[type=radio],.dsg-page input[type=range]').count() === 0)
+const setSidebarDelay = async (value) => { await delayField().fill(value); await delayField().press('Enter'); await sidebarPage.waitForTimeout(40) }
+await setSidebarDelay('800')
+check('Enter保存时长并同步更新说明', await delayField().inputValue() === '800' && await sidebarPage.locator('.dsg-page').innerText().then((text) => text.includes('按住 800ms')))
+const sidebarSelectors = ['nav .dsg-chip[data-dsg-gid="st"]', 'nav [data-section="models"]', 'nav [data-section="dsh-commandcode"]']
+const startSidebarHold = async (selector) => {
+	const row = sidebarPage.locator(selector)
+	await row.scrollIntoViewIfNeeded()
+	const box = await row.boundingBox()
+	await sidebarPage.mouse.move(box.x + 55, box.y + box.height / 2)
+	await sidebarPage.mouse.down()
+}
+for (const [index, selector] of sidebarSelectors.entries()) {
+	await startSidebarHold(selector)
+	await sidebarPage.waitForTimeout(350)
+	check(`导航拖动类型${index + 1}在自定义等待时间前不会浮起`, await sidebarPage.locator('[data-dsg-floating]').count() === 0)
+	await sidebarPage.waitForTimeout(500)
+	check(`导航拖动类型${index + 1}达到800ms后浮起`, await sidebarPage.locator('[data-dsg-floating]').count() === 1)
+	await sidebarPage.mouse.up()
+	await sidebarPage.waitForTimeout(300)
+}
+await sidebarToggle().click()
+await sidebarPage.waitForTimeout(55)
+const sidebarSwitchMid = await sidebarToggle().locator('.dsg-knob').evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).m41)
+check('新开关切换有真实滑动中间帧', sidebarSwitchMid > 0 && sidebarSwitchMid < 18, String(sidebarSwitchMid))
+await sidebarPage.waitForTimeout(250)
+for (const [index, selector] of sidebarSelectors.entries()) {
+	await startSidebarHold(selector)
+	await sidebarPage.waitForTimeout(900)
+	check(`关闭开关后导航拖动类型${index + 1}长按也不会浮起`, await sidebarPage.locator('[data-dsg-floating]').count() === 0)
+	await sidebarPage.mouse.up()
+	await sidebarPage.waitForTimeout(300)
+	if (index === 0 && await sidebarPage.locator(sidebarSelectors[0]).getAttribute('aria-expanded') === 'false') {
+		await sidebarPage.locator(sidebarSelectors[0]).click()
+		await sidebarPage.waitForTimeout(300)
+	}
+}
+const sidebarChip = () => sidebarPage.locator(sidebarSelectors[0])
+await sidebarChip().click()
+await sidebarPage.waitForTimeout(300)
+const beforeClick = await sidebarChip().getAttribute('aria-expanded')
+await sidebarChip().click()
+await sidebarPage.waitForTimeout(300)
+check('禁用长按后分组仍可点击展开和收起', await sidebarChip().getAttribute('aria-expanded') !== beforeClick)
+// 保证组展开，管理页仍使用原来的250ms长按，左侧800ms配置不影响它。
+await startSidebarHold('.dsg-page [data-dsg-pin="account"]')
+await sidebarPage.waitForTimeout(320)
+check('禁用左侧拖动不影响管理页拖动及原有等待时间', await sidebarPage.locator('[data-dsg-row-floating]').count() === 1)
+await sidebarPage.mouse.up()
+await sidebarPage.waitForTimeout(350)
+const sidebarSaved = await sidebarPage.evaluate(async () => ({ local: JSON.parse(localStorage.getItem('dsh.settingsGroups.v1')), disk: (await (await fetch('/api/dsh-settings-groups/config')).json()).config }))
+check('拖动开关与时长双写到缓存和宿主配置', sidebarSaved.local.sidebarDrag === false && sidebarSaved.disk.sidebarDrag === false && sidebarSaved.local.sidebarDragDelay === 800 && sidebarSaved.disk.sidebarDragDelay === 800)
+await sidebarPage.reload({ waitUntil: 'load' })
+await sidebarPage.waitForTimeout(550)
+check('刷新后保持拖动关闭和自定义时间', await sidebarToggle().getAttribute('aria-checked') === 'false' && await delayField().inputValue() === '800')
+await sidebarPage.evaluate(() => localStorage.clear())
+await sidebarPage.reload({ waitUntil: 'load' })
+await sidebarPage.waitForTimeout(600)
+check('清空缓存后恢复宿主保存的拖动开关与时间', await sidebarToggle().getAttribute('aria-checked') === 'false' && await delayField().inputValue() === '800')
+await setSidebarDelay('')
+check('空时间输入恢复当前值', await delayField().inputValue() === '800')
+await setSidebarDelay('invalid')
+check('无效时间输入恢复当前值', await delayField().inputValue() === '800')
+await setSidebarDelay('20')
+check('长按时间下限为100ms', await delayField().inputValue() === '100')
+await delayField().fill('99999')
+await sidebarToggle().focus()
+await sidebarPage.waitForTimeout(40)
+check('离开焦点也保存并限制上限5000ms', await delayField().inputValue() === '5000')
+await setSidebarDelay('800')
+await sidebarToggle().click()
+await sidebarPage.waitForTimeout(300)
+check('导航拖动开关不改变分组或动效偏好', await sidebarPage.getByRole('switch', { name: '启用分组', exact: true }).getAttribute('aria-checked') === 'true' && await sidebarPage.getByRole('switch', { name: '启用动效', exact: true }).getAttribute('aria-checked') === 'true')
+// 长按尚未触发时关闭，和已经浮起后关闭，都必须立即取消。
+for (const hold of [60, 850]) {
+	await startSidebarHold(sidebarSelectors[0])
+	await sidebarPage.waitForTimeout(hold)
+	await sidebarToggle().evaluate((el) => el.click())
+	await sidebarPage.waitForTimeout(900)
+	check(`关闭开关清理${hold < 800 ? '待触发' : '进行中'}的长按拖动`, await sidebarPage.locator('[data-dsg-floating]').count() === 0 && await sidebarPage.evaluate(() => document.body.style.cursor === ''))
+	await sidebarPage.mouse.up()
+	await sidebarToggle().click()
+	await sidebarPage.waitForTimeout(300)
+}
+// 原有分组总开关也应阻止残留按钮监听继续触发拖动。
+await sidebarPage.getByRole('switch', { name: '启用分组', exact: true }).click()
+await startSidebarHold('nav [data-section="models"]')
+await sidebarPage.waitForTimeout(900)
+check('关闭分组后原生导航不会被旧长按监听抓起', await sidebarPage.locator('[data-dsg-floating]').count() === 0)
+await sidebarPage.mouse.up()
+await sidebarPage.getByRole('switch', { name: '启用分组', exact: true }).click()
+await sidebarPage.waitForTimeout(300)
+await sidebarPage.screenshot({ path: join(HERE, 'shot-sidebar-drag.png') })
+await sidebarContext.close()
 
 check('全程无 JS 报错', errors.length === 0, errors.slice(0, 3).join(' | '))
 

@@ -36,6 +36,9 @@ window.__ModuleLoader__.load({
 		const inject = ["slots", "locale"];
 		/** 过渡时长（与 CSS 的 .26s 对齐）。 */
 		const ANIM_MS = 220;
+		/** 左侧导航长按后开始拖动的等待时间。 */
+		const NAV_LONG_PRESS_MS = 250;
+		const normalizeSidebarDragDelay = (value) => Math.min(5000, Math.max(100, Math.round(value)));
 		/** 拖拽载荷 MIME（自用，不依赖 text/plain）。 */
 		const DND_MIME = "application/x-dsh-settings-groups";
 
@@ -71,6 +74,10 @@ window.__ModuleLoader__.load({
 				enabledDesc: "关闭后设置导航完全恢复宿主原生平铺，配置仍然保留。",
 				animations: "启用动效",
 				animationsDesc: "一键开关设置管理提供的全部动效；关闭后操作立即完成，偏好会自动保存。",
+				sidebarDrag: "左侧设置栏长按拖动",
+				sidebarDragDesc: "开启后按住 {ms}ms 可拖动分组和设置入口；关闭后仍可点击、展开和收起分组。管理页内拖动不受影响。",
+				sidebarDragDelay: "长按等待时间",
+				sidebarDragDelayDesc: "100–5000ms，默认 250ms。按 Enter 或移开焦点保存。",
 				newGroup: "新建分组",
 				newGroupPlaceholder: "分组名称，例如「界面增强」",
 				create: "新建",
@@ -143,6 +150,10 @@ window.__ModuleLoader__.load({
 				enabledDesc: "When off, the settings nav returns to the host's flat list; your configuration is kept.",
 				animations: "Enable animations",
 				animationsDesc: "Control all animations provided by Settings management. When off, actions finish immediately. Your preference is saved.",
+				sidebarDrag: "Long-press dragging in the settings sidebar",
+				sidebarDragDesc: "Hold for {ms}ms to drag groups and settings entries. Turning this off keeps clicks and group toggles available. Dragging within the management page is unaffected.",
+				sidebarDragDelay: "Long-press delay",
+				sidebarDragDelayDesc: "100–5000ms; default 250ms. Press Enter or leave the field to save.",
 				newGroup: "New group",
 				newGroupPlaceholder: "Group name, e.g. “UI enhancements”",
 				create: "Create",
@@ -207,6 +218,7 @@ window.__ModuleLoader__.load({
 			 * loose:  [entryId...] —— 未分组条目的显式顺序（新出现的条目自动追加在末尾）；
 			 * hidden: [entryId...] —— 被藏起来的条目，导航里完全不出现；
 			 * enabled / folded：总开关、未分组折叠态；
+			 * sidebarDrag / sidebarDragDelay：左侧导航长按拖动开关及等待毫秒数；
 			 * updatedAt：写这份配置的时间戳，用来跟磁盘那份比新旧。
 			 *
 			 * 一个条目同时只能处在一种状态：某个分组 / 未分组 / 隐藏（三态互斥）。
@@ -215,7 +227,7 @@ window.__ModuleLoader__.load({
 			 * folded 默认 false：装这个插件就是为了把条目拖来拖去，一进来就全收起来
 			 * 等于把可拖的东西藏了。想省地方再自己点那一行收起。
 			 */
-			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, animations: true, folded: false, groups: [], loose: [], hidden: [], coreExtra: [], coreOrder: [], topOrder: [] });
+			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, animations: true, sidebarDrag: true, sidebarDragDelay: NAV_LONG_PRESS_MS, folded: false, groups: [], loose: [], hidden: [], coreExtra: [], coreOrder: [], topOrder: [] });
 
 			const sanitize = (raw) => {
 				const next = defaults();
@@ -223,6 +235,8 @@ window.__ModuleLoader__.load({
 				if (Number.isFinite(raw.updatedAt)) next.updatedAt = Number(raw.updatedAt);
 				if (typeof raw.enabled === "boolean") next.enabled = raw.enabled;
 				if (typeof raw.animations === "boolean") next.animations = raw.animations;
+				if (typeof raw.sidebarDrag === "boolean") next.sidebarDrag = raw.sidebarDrag;
+				if (Number.isFinite(raw.sidebarDragDelay)) next.sidebarDragDelay = normalizeSidebarDragDelay(raw.sidebarDragDelay);
 				if (typeof raw.folded === "boolean") next.folded = raw.folded;
 				if (Array.isArray(raw.coreExtra)) next.coreExtra = raw.coreExtra.filter((x) => typeof x === "string");
 				if (Array.isArray(raw.coreOrder)) next.coreOrder = raw.coreOrder.filter((x) => typeof x === "string");
@@ -853,6 +867,7 @@ window.__ModuleLoader__.load({
 				".dsg-count{flex:none;height:18px;line-height:18px;min-width:18px;text-align:center;padding:0 6px;border-radius:999px;background:rgba(127,127,127,.12);color:var(--dsw-alias-label-secondary,#8a8a8a);font-size:11px;font-weight:500;opacity:.9}",
 				".dsg-grip{flex:none;font-size:10px;opacity:0;cursor:grab;transition:opacity .15s ease}",
 				".dsg-chip:hover .dsg-grip{opacity:.55}",
+				"[data-dsg-sidebar-drag=\"0\"] .dsg-grip{opacity:0;cursor:inherit}",
 				// —— 拖拽反馈 ——
 				".dsg-chip[data-dsg-drop=\"into\"]{background:color-mix(in srgb, var(--dsg-accent,#4a7cf5) 15%, transparent);color:var(--dsg-accent,#4a7cf5);outline:1px solid color-mix(in srgb, var(--dsg-accent,#4a7cf5) 55%, transparent);outline-offset:-1px}",
 				"[data-dsg-drop=\"before\"]{box-shadow:inset 0 2px 0 0 var(--dsg-accent,#4a7cf5)}",
@@ -1138,9 +1153,12 @@ window.__ModuleLoader__.load({
 			// ---- chip 构建 ----
 			/** 拖动结束时紧跟着的那次 click 要吞掉，否则会顺带切换展开态。 */
 			let suppressChipClick = false;
+			/** 只保留当前导航拖动，关闭开关时连待触发的长按一起取消。 */
+			let navDragCleanup = null;
+			const sidebarDragAllowed = () => state.enabled && state.sidebarDrag && !legacyRunning();
 
 			/**
-			 * 手机桌面式拖动：按住 250ms 浮起 → 克隆一份跟着指针 → 经过别处实时让位 → 松手落位。
+			 * 手机桌面式拖动：按住配置的等待时间（默认 250ms）浮起 → 克隆一份跟着指针 → 经过别处实时让位 → 松手落位。
 			 *
 			 * 为什么不用 HTML5 DnD：它的拖拽预览是浏览器自己画的（半透明截图），
 			 * 没法做成"拿在手里"的样子；而且只有 drop 时才允许改 DOM，
@@ -1159,6 +1177,7 @@ window.__ModuleLoader__.load({
 				let wasOpen = false;
 
 				const cleanup = () => {
+					if (navDragCleanup === cleanup) navDragCleanup = null;
 					if (timer !== 0) {
 						clearTimeout(timer);
 						timer = 0;
@@ -1180,7 +1199,6 @@ window.__ModuleLoader__.load({
 					document.removeEventListener("pointermove", onMove, true);
 					document.removeEventListener("pointerup", onUp, true);
 					document.removeEventListener("pointercancel", onUp, true);
-					document.removeEventListener("pointerup", cancelTimer, true);
 					clearDropMarks();
 					if (dragging) {
 						suppressChipClick = true;
@@ -1191,13 +1209,7 @@ window.__ModuleLoader__.load({
 					dragging = false;
 				};
 
-				function cancelTimer() {
-					if (timer !== 0) {
-						clearTimeout(timer);
-						timer = 0;
-					}
-					document.removeEventListener("pointerup", cancelTimer, true);
-				}
+				function cancelTimer() { cleanup(); }
 
 				/** 指针下面是什么：另一个分组，或某个核心项。 */
 				const hitAt = (x, y) => {
@@ -1223,7 +1235,7 @@ window.__ModuleLoader__.load({
 
 				const onMove = (e) => {
 					if (!dragging) {
-						// 还没到 250ms 就移动了 → 当点击/滚动，取消长按
+						// 未到等待时间就移动了 → 当点击/滚动，取消长按
 						if (Math.abs(e.clientX - startX) > 6 || Math.abs(e.clientY - startY) > 6) cancelTimer();
 						return;
 					}
@@ -1249,13 +1261,18 @@ window.__ModuleLoader__.load({
 				const onUp = () => cleanup();
 
 				el.addEventListener("pointerdown", (e) => {
-					if (e.button !== 0 || gid === undefined) return;
+					if (!sidebarDragAllowed() || e.button !== 0 || gid === undefined) return;
+					navDragCleanup?.();
+					navDragCleanup = cleanup;
 					startX = e.clientX;
 					startY = e.clientY;
 					if (timer !== 0) clearTimeout(timer);
-					document.addEventListener("pointerup", cancelTimer, true);
+					document.addEventListener("pointermove", onMove, true);
+					document.addEventListener("pointerup", onUp, true);
+					document.addEventListener("pointercancel", onUp, true);
 					timer = setTimeout(() => {
 						timer = 0;
+						if (!el.isConnected || !sidebarDragAllowed()) { cleanup(); return; }
 						dragging = true;
 						// 抓起来的那个分组先合上：展开着的话它是"标签 + 一整排条目"，
 						// 拿在手里太臃肿，也让落点判断更乱。松手再还原。
@@ -1292,10 +1309,7 @@ window.__ModuleLoader__.load({
 						el.style.opacity = "0.22";
 						document.body.style.cursor = "grabbing";
 						lastKey = "\u0000";
-						document.addEventListener("pointermove", onMove, true);
-						document.addEventListener("pointerup", onUp, true);
-						document.addEventListener("pointercancel", onUp, true);
-					}, 250);
+					}, state.sidebarDragDelay);
 				});
 			};
 
@@ -1431,6 +1445,7 @@ window.__ModuleLoader__.load({
 				let dragging = false;
 
 				const cleanup = () => {
+					if (navDragCleanup === cleanup) navDragCleanup = null;
 					if (timer !== 0) {
 						clearTimeout(timer);
 						timer = 0;
@@ -1444,18 +1459,11 @@ window.__ModuleLoader__.load({
 					document.removeEventListener("pointermove", onMove, true);
 					document.removeEventListener("pointerup", onUp, true);
 					document.removeEventListener("pointercancel", onUp, true);
-					document.removeEventListener("pointerup", cancelTimer, true);
 					clearDropMarks();
 					dragging = false;
 				};
 
-				function cancelTimer() {
-					if (timer !== 0) {
-						clearTimeout(timer);
-						timer = 0;
-					}
-					document.removeEventListener("pointerup", cancelTimer, true);
-				}
+				function cancelTimer() { cleanup(); }
 
 				const hitAt = (x, y) => {
 					const raw = document.elementFromPoint(x, y);
@@ -1500,13 +1508,18 @@ window.__ModuleLoader__.load({
 				const onUp = () => cleanup();
 
 				el.addEventListener("pointerdown", (e) => {
-					if (e.button !== 0) return;
+					if (!sidebarDragAllowed() || e.button !== 0) return;
+					navDragCleanup?.();
+					navDragCleanup = cleanup;
 					startX = e.clientX;
 					startY = e.clientY;
 					if (timer !== 0) clearTimeout(timer);
-					document.addEventListener("pointerup", cancelTimer, true);
+					document.addEventListener("pointermove", onMove, true);
+					document.addEventListener("pointerup", onUp, true);
+					document.addEventListener("pointercancel", onUp, true);
 					timer = setTimeout(() => {
 						timer = 0;
+						if (!el.isConnected || !sidebarDragAllowed()) { cleanup(); return; }
 						dragging = true;
 						const rect = el.getBoundingClientRect();
 						grabX = startX - rect.left;
@@ -1535,10 +1548,7 @@ window.__ModuleLoader__.load({
 						el.style.opacity = "0.22";
 						document.body.style.cursor = "grabbing";
 						lastKey = "\u0000";
-						document.addEventListener("pointermove", onMove, true);
-						document.addEventListener("pointerup", onUp, true);
-						document.addEventListener("pointercancel", onUp, true);
-					}, 250);
+					}, state.sidebarDragDelay);
 				});
 			};
 
@@ -1685,6 +1695,7 @@ window.__ModuleLoader__.load({
 				let dragging = false;
 
 				const cleanup = () => {
+					if (navDragCleanup === cleanup) navDragCleanup = null;
 					if (timer !== 0) {
 						clearTimeout(timer);
 						timer = 0;
@@ -1698,18 +1709,11 @@ window.__ModuleLoader__.load({
 					document.removeEventListener("pointermove", onMove, true);
 					document.removeEventListener("pointerup", onUp, true);
 					document.removeEventListener("pointercancel", onUp, true);
-					document.removeEventListener("pointerup", cancelTimer, true);
 					clearDropMarks();
 					dragging = false;
 				};
 
-				function cancelTimer() {
-					if (timer !== 0) {
-						clearTimeout(timer);
-						timer = 0;
-					}
-					document.removeEventListener("pointerup", cancelTimer, true);
-				}
+				function cancelTimer() { cleanup(); }
 
 				const hitAt = (x, y) => {
 					const raw = document.elementFromPoint(x, y);
@@ -1774,13 +1778,18 @@ window.__ModuleLoader__.load({
 				const onUp = () => cleanup();
 
 				el.addEventListener("pointerdown", (e) => {
-					if (e.button !== 0) return;
+					if (!sidebarDragAllowed() || e.button !== 0) return;
+					navDragCleanup?.();
+					navDragCleanup = cleanup;
 					startX = e.clientX;
 					startY = e.clientY;
 					if (timer !== 0) clearTimeout(timer);
-					document.addEventListener("pointerup", cancelTimer, true);
+					document.addEventListener("pointermove", onMove, true);
+					document.addEventListener("pointerup", onUp, true);
+					document.addEventListener("pointercancel", onUp, true);
 					timer = setTimeout(() => {
 						timer = 0;
+						if (!el.isConnected || !sidebarDragAllowed()) { cleanup(); return; }
 						dragging = true;
 						const rect = el.getBoundingClientRect();
 						grabX = startX - rect.left;
@@ -1809,10 +1818,7 @@ window.__ModuleLoader__.load({
 						el.style.opacity = "0.22";
 						document.body.style.cursor = "grabbing";
 						lastKey = "\u0000";
-						document.addEventListener("pointermove", onMove, true);
-						document.addEventListener("pointerup", onUp, true);
-						document.addEventListener("pointercancel", onUp, true);
-					}, 250);
+					}, state.sidebarDragDelay);
 				});
 			};
 
@@ -2402,6 +2408,7 @@ window.__ModuleLoader__.load({
 			let animatePending = false;
 
 			const sync = (animate = false) => {
+				if (!sidebarDragAllowed()) navDragCleanup?.();
 				if (inSync) {
 					pendingSync = true;
 					if (animate) animatePending = true;
@@ -2410,7 +2417,8 @@ window.__ModuleLoader__.load({
 				inSync = true;
 				try {
 					const nav = findNavList();
-					if (nav === null) return;
+					if (nav === null) { navDragCleanup?.(); return; }
+					nav.dataset.dsgSidebarDrag = state.sidebarDrag ? "1" : "0";
 					refreshRows();
 					if (legacyRunning()) {
 						// 旧插件在跑：退让，不碰 DOM（两边都改会互相打架）
@@ -2423,15 +2431,14 @@ window.__ModuleLoader__.load({
 					}
 					syncRefs(nav);
 					bindNavDnd(nav);
-					// 所有条目都能拖：普通条目改分组/未分组，顶部固定项只在自己那区里换位
-					// 核心项走手指拖拽（跟分组标签同一套手感）；普通条目仍是 HTML5 ——
-					// 它们要被"丢进"分组，drop 语义不一样。
+					// 全部导航条目走长按拖动；开关在 pointerdown 时读取，随时切换立即生效。
 					for (const r of rows) {
 						const btn = refs.get(r.id);
 						if (btn === undefined) continue;
 						// 标记放在这里而不是 bindItemDrag 里：核心项已经不走那条路径了，
 						// 但悬停/选中的样式是按这个属性挂的。
 						btn.dataset.dsgItem = "1";
+						btn.draggable = false;
 						if (isCore(r.id)) bindCorePointerDrag(btn, r.id);
 						else bindItemPointerDrag(btn, r.id);
 					}
@@ -2512,6 +2519,8 @@ window.__ModuleLoader__.load({
 				observer.observe(document.body, { childList: true, subtree: true });
 				return () => {
 					observer.disconnect();
+					navDragCleanup?.();
+					for (const nav of document.querySelectorAll("[data-dsg-sidebar-drag]")) delete nav.dataset.dsgSidebarDrag;
 					if (stormTimer !== null) clearTimeout(stormTimer);
 					for (const el of document.querySelectorAll(".dsg-chip")) el.remove();
 					chips.clear();
@@ -2710,6 +2719,8 @@ window.__ModuleLoader__.load({
 				const tPage = props?.t ?? t;
 				const [, setTick] = React.useState(0);
 				const [draft, setDraft] = React.useState("");
+				const [delayDraft, setDelayDraft] = React.useState(String(state.sidebarDragDelay));
+				React.useEffect(() => { setDelayDraft(String(state.sidebarDragDelay)); }, [state.sidebarDragDelay]);
 				const [renaming, setRenaming] = React.useState(null); // gid
 				const [renameText, setRenameText] = React.useState("");
 				const [dragId, setDragId] = React.useState(null); // 被拖的条目（渲染用）
@@ -2786,6 +2797,18 @@ window.__ModuleLoader__.load({
 					sync(true);
 					notifyPage();
 					if (msg !== undefined) say(msg);
+				};
+				const saveSidebarDragDelay = () => {
+					const parsed = Number(delayDraft);
+					if (delayDraft.trim() === "" || !Number.isFinite(parsed)) {
+						setDelayDraft(String(state.sidebarDragDelay));
+						return;
+					}
+					const delay = normalizeSidebarDragDelay(parsed);
+					setDelayDraft(String(delay));
+					if (delay === state.sidebarDragDelay) return;
+					state.sidebarDragDelay = delay;
+					commit();
 				};
 				const finishRename = (g) => {
 					const name = renameText.trim();
@@ -3173,6 +3196,38 @@ window.__ModuleLoader__.load({
 									"data-dsg-control": "animations", "data-on": state.animations ? "1" : "0",
 									onClick: () => { state.animations = !state.animations; commit(); },
 								}, h("span", { className: "dsg-knob" })),
+							),
+						),
+						h("div", { className: "dsg-subcard" },
+							h("div", { className: "dsg-toggle" },
+								h("div", { className: "dsg-toggletext" },
+									h("span", { className: "dsg-toggletitle" }, tPage("sidebarDrag")),
+									h("span", { className: "dsg-hint" }, tPage("sidebarDragDesc").replace("{ms}", state.sidebarDragDelay)),
+								),
+								h("button", {
+									type: "button", className: "dsg-switch", role: "switch",
+									"aria-label": tPage("sidebarDrag"), "aria-checked": state.sidebarDrag,
+									"data-dsg-control": "sidebar-drag", "data-on": state.sidebarDrag ? "1" : "0",
+									onClick: () => { state.sidebarDrag = !state.sidebarDrag; commit(); },
+								}, h("span", { className: "dsg-knob" })),
+							),
+							h("div", { className: "dsg-toggle" },
+								h("div", { className: "dsg-toggletext" },
+									h("label", { className: "dsg-toggletitle", htmlFor: "dsg-sidebar-drag-delay" }, tPage("sidebarDragDelay")),
+									h("span", { className: "dsg-hint" }, tPage("sidebarDragDelayDesc")),
+								),
+								h("div", { style: { display: "flex", alignItems: "center", gap: 6, flex: "none" } },
+									h("input", {
+										id: "dsg-sidebar-drag-delay", className: "dsg-input", type: "text", inputMode: "numeric",
+										style: { width: 84, textAlign: "right" }, value: delayDraft,
+										onChange: (e) => setDelayDraft(e.target.value), onBlur: saveSidebarDragDelay,
+										onKeyDown: (e) => {
+											if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
+											if (e.key === "Escape") { e.preventDefault(); setDelayDraft(String(state.sidebarDragDelay)); }
+										},
+									}),
+									h("span", { className: "dsg-hint" }, "ms"),
+								),
 							),
 						),
 					),

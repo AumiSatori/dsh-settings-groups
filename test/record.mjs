@@ -75,7 +75,7 @@ async function record({ name, size, setup, script, crop, fps = 14, width = 320 }
 
 /** 建两个分组，各塞几条进去（导航场景的公共准备）。 */
 const seedGroups = async (page) => {
-	const input = page.locator('.dsg-input').first()
+	const input = page.locator('.dsg-new .dsg-input')
 	await input.fill('界面美化')
 	await input.press('Enter')
 	await page.waitForTimeout(250)

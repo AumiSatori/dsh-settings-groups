@@ -26,7 +26,7 @@ const page = await browser.newPage({ viewport: { width: 900, height: 900 }, devi
 await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'load' })
 await page.waitForTimeout(400)
 
-const input = page.locator('.dsg-input').first()
+const input = page.locator('.dsg-new .dsg-input')
 await input.fill('开发工具')
 await input.press('Enter')
 await page.waitForTimeout(200)

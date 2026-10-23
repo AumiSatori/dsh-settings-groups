@@ -12,7 +12,7 @@
 
 ![拖动分组](docs/nav-drag.gif)
 
-拖动用的是「攥在手里」那套：按住 250ms 浮起（克隆一份跟着指针，原位置淡到 22%），**抓起来的分组会先自动合上**（不带着一整排条目跑），经过别的分组时它们立刻滑开，不是等松手才动；松手后原来的展开状态自动还原。
+拖动用的是「攥在手里」那套：默认按住 250ms 浮起（克隆一份跟着指针，原位置淡到 22%），**抓起来的分组会先自动合上**（不带着一整排条目跑），经过别的分组时它们立刻滑开，不是等松手才动；松手后原来的展开状态自动还原。可在「设置管理」关闭左侧设置栏长按拖动，或把等待时间改为 100–5000ms。
 
 **管理页：改名字、调顺序、加入分组、看统计**
 
@@ -44,6 +44,12 @@ node scripts/profile.mjs uninstall --profile desktop
 ```
 
 装完**重启 DSH**（宿主端要加载新插件）。只改 `client.js` 的话，窗口里 `Ctrl+R` 就够。
+
+### 0.1.14：左侧设置栏拖动开关与等待时间
+
+「设置管理」顶部新增「左侧设置栏长按拖动」开关，默认开启，统一控制左侧的分组、固定项和插件设置入口。关闭后正常点击、搜索、展开与收起照常可用；管理页内拖动仍然可用。关闭开关也会立即取消正在等待或进行的导航拖动。
+
+「长按等待时间」默认 250ms，可输入 100–5000ms，按 Enter 或离开输入框保存；超出范围自动限制到上下限，无效或空输入恢复原值。开关与时长同时保存到 localStorage 和宿主配置，刷新、重开与清空缓存后可恢复。它们与分组、动效开关相互独立，只影响左侧设置栏的长按拖动。
 
 ### 0.1.13：开关区域样式统一
 
@@ -142,6 +148,8 @@ node scripts/profile.mjs uninstall --profile desktop
   "_readme": "改完存盘，设置面板开着的话 5 秒内生效。",
   "v": 1,
   "animations": true,
+  "sidebarDrag": true,
+  "sidebarDragDelay": 250,
   "groups": [
     { "id": "g1", "name": "模型接入", "entries": ["codex-subscription", "commandcode"], "open": true }
   ],
@@ -173,7 +181,7 @@ node scripts/profile.mjs uninstall --profile desktop
 
 ```sh
 npm i -D playwright react@18 react-dom@18   # 只有跑测试才需要
-node test/run.mjs            # 真 Chromium 跑 225 项断言
+node test/run.mjs            # 真 Chromium：导航、管理操作、动效及拖动配置回归
 node test/host.mjs           # 宿主端路由单测（10 项，不启 DSH）
 node test/record.mjs         # 重新录 README 的动图（要 ffmpeg）
 ```
