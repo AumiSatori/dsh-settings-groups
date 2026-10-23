@@ -1299,6 +1299,41 @@ await responsivePage.waitForTimeout(450)
 const reopenedSmall = await responsiveBox()
 check('小窗口关闭重开仍在可见范围内', insideViewport(reopenedSmall), JSON.stringify(reopenedSmall))
 await responsivePage.screenshot({ path: join(HERE, 'shot-responsive.png') })
+
+// Remotion 0.6.0 对整个设置窗口写了 width/max-width !important。
+// 模拟页面后挂载其样式，验证拖动控制仍能覆盖它，且不会只更新记忆不更新画面。
+await responsivePage.setViewportSize({ width: 2000, height: 1500 })
+await responsivePage.evaluate(() => {
+	const page = document.createElement('div'); page.className = 'dmw'; page.textContent = 'Remotion 视频工作台'; document.getElementById('content').append(page)
+	localStorage.setItem('dsh.settingsPanelTweak.v1', JSON.stringify({ panelW: 900, panelH: 720, navW: 240, dx: 0, dy: 0 }))
+})
+await responsivePage.addStyleTag({ content: '[role=dialog]:has(.dmw){width:min(1160px,calc(100vw - 40px))!important;max-width:1160px!important}' })
+await responsivePage.evaluate(() => window.dispatchEvent(new Event('resize')))
+await responsivePage.waitForTimeout(180)
+const remotionOpen = await responsiveBox()
+check('插件页强制宽度不会覆盖记住的面板宽度', Math.abs(remotionOpen.width - 900) < 1, JSON.stringify(remotionOpen))
+const resizeRemotion = async (delta) => {
+	const handle = responsivePage.locator('.dsh-ptweak-rz[data-dir="e"]')
+	const box = await handle.boundingBox()
+	await responsivePage.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+	await responsivePage.mouse.down()
+	await responsivePage.mouse.move(box.x + box.width / 2 + delta, box.y + box.height / 2, { steps: 8 })
+	await responsivePage.mouse.up()
+	await responsivePage.waitForTimeout(80)
+	return responsiveBox()
+}
+const remotionWide = await resizeRemotion(400)
+check('Remotion 页面可拖宽并超过原先的 1160px 上限', Math.abs(remotionWide.width - 1300) < 2 && insideViewport(remotionWide), JSON.stringify(remotionWide))
+const remotionNarrow = await resizeRemotion(-480)
+check('Remotion 页面可缩窄且保存的是实际显示宽度', Math.abs(remotionNarrow.width - 820) < 2 && Math.abs(remotionNarrow.pref.panelW - remotionNarrow.width) < 1, JSON.stringify(remotionNarrow))
+await responsivePage.locator('.dsh-ptweak-rz[data-dir="e"]').dblclick()
+await responsivePage.waitForTimeout(400)
+const remotionReset = await responsiveBox()
+check('Remotion 页面双击恢复自适应默认尺寸', Math.abs(remotionReset.width - 1080) < 1 && remotionReset.pref.panelW === null, JSON.stringify(remotionReset))
+await responsivePage.setViewportSize({ width: 600, height: 480 })
+await responsivePage.waitForTimeout(180)
+const remotionSmall = await responsiveBox()
+check('强制宽度的插件页缩小窗口后仍不会越界', insideViewport(remotionSmall), JSON.stringify(remotionSmall))
 await responsiveContext.close()
 
 // ---- 15. 管理页真实鼠标排序、抓起、实时让位和跨组 ----

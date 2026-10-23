@@ -3876,9 +3876,11 @@ window.__ModuleLoader__.load({
 					const prefW = ptNum(pref.panelW);
 					const prefH = ptNum(pref.panelH);
 					panel.style.transition = "";
-					panel.style.maxWidth = `${maxW}px`;
+					// 插件设置页（例如 Remotion）可能用 !important 指定整个 dialog
+					// 的宽度。尺寸归本控制器管理，必须在恢复、拖动和复位时一致覆盖。
+					panel.style.setProperty("max-width", `${maxW}px`, "important");
 					panel.style.maxHeight = `${maxH}px`;
-					panel.style.width = prefW === null ? PT_DEF_W : `${ptClamp(prefW, Math.min(440, maxW), maxW)}px`;
+					panel.style.setProperty("width", prefW === null ? PT_DEF_W : `${ptClamp(prefW, Math.min(440, maxW), maxW)}px`, "important");
 					panel.style.height = prefH === null ? PT_DEF_H : `${ptClamp(prefH, Math.min(300, maxH), maxH)}px`;
 					// 侧栏也要给正文留位置；只改本次显示，不把大窗口偏好写小。
 					nav.style.width = ptNum(pref.navW) === null ? "" : `${ptClamp(pref.navW, PT_MIN_NAV, 520)}px`;
@@ -3893,7 +3895,7 @@ window.__ModuleLoader__.load({
 
 				const resetBox = () => {
 					panel.style.transition = motionAllowed() ? "width .3s cubic-bezier(.2,.7,.3,1), height .3s cubic-bezier(.2,.7,.3,1)" : "";
-					panel.style.width = PT_DEF_W;
+					panel.style.setProperty("width", PT_DEF_W, "important");
 					panel.style.height = PT_DEF_H;
 					setTimeout(() => {
 						panel.style.transition = "";
@@ -3933,7 +3935,7 @@ window.__ModuleLoader__.load({
 						const move = (e) => {
 							const w = sx ? ptClamp(rect.width + sx * (e.clientX - startX), Math.min(440, maxW), maxW) : rect.width;
 							const h = sy ? ptClamp(rect.height + sy * (e.clientY - startY), Math.min(300, maxH), maxH) : rect.height;
-							panel.style.width = `${Math.round(w)}px`;
+							panel.style.setProperty("width", `${Math.round(w)}px`, "important");
 							panel.style.height = `${Math.round(h)}px`;
 							// 面板在 overlay 里是 flex 居中的：改尺寸会左右/上下各长一半，
 							// 把平移补回一半，被拖的那条边才会咬住鼠标（否则手感像从中心缩放）
