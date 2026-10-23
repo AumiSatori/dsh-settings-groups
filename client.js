@@ -227,7 +227,7 @@ window.__ModuleLoader__.load({
 			 * folded 默认 false：装这个插件就是为了把条目拖来拖去，一进来就全收起来
 			 * 等于把可拖的东西藏了。想省地方再自己点那一行收起。
 			 */
-			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, animations: true, sidebarDrag: true, sidebarDragDelay: NAV_LONG_PRESS_MS, folded: false, groups: [], loose: [], hidden: [], coreExtra: [], coreOrder: [], topOrder: [] });
+			const defaults = () => ({ v: 1, updatedAt: 0, migratedV1: false, enabled: true, animations: true, sidebarDrag: true, sidebarDragDelay: NAV_LONG_PRESS_MS, lastSection: "", folded: false, groups: [], loose: [], hidden: [], coreExtra: [], coreOrder: [], topOrder: [] });
 
 			const sanitize = (raw) => {
 				const next = defaults();
@@ -237,6 +237,7 @@ window.__ModuleLoader__.load({
 				if (typeof raw.animations === "boolean") next.animations = raw.animations;
 				if (typeof raw.sidebarDrag === "boolean") next.sidebarDrag = raw.sidebarDrag;
 				if (Number.isFinite(raw.sidebarDragDelay)) next.sidebarDragDelay = normalizeSidebarDragDelay(raw.sidebarDragDelay);
+				if (typeof raw.lastSection === "string" && raw.lastSection.length <= 240) next.lastSection = raw.lastSection;
 				if (typeof raw.folded === "boolean") next.folded = raw.folded;
 				if (Array.isArray(raw.coreExtra)) next.coreExtra = raw.coreExtra.filter((x) => typeof x === "string");
 				if (Array.isArray(raw.coreOrder)) next.coreOrder = raw.coreOrder.filter((x) => typeof x === "string");
@@ -323,6 +324,8 @@ window.__ModuleLoader__.load({
 			 * 两边都带 `updatedAt`，谁新听谁的 —— 文件是旧的就把它覆盖掉，不会拿旧数据倒灌。
 			 */
 			let state = migrateLegacy(readStore());
+			let pageMemoryHydrated = false;
+			let refreshPageMemory = () => {};
 			/**
 			 * 去重 + 保证三态互斥：一个条目只能落在「某个分组 / 未分组 / 已隐藏」之一。
 			 * hidden 先占位，所以配置文件被手工改出「既在组里又藏起来」时，以隐藏为准。
@@ -374,9 +377,9 @@ window.__ModuleLoader__.load({
 
 			/** 推到宿主端落盘。节流 250ms，失败就当没这回事（localStorage 仍在）。 */
 			let pushTimer = null;
-			const pushToHost = () => {
+			const pushToHost = (immediate = false) => {
 				if (pushTimer !== null) clearTimeout(pushTimer);
-				pushTimer = setTimeout(() => {
+				const flush = () => {
 					pushTimer = null;
 					const body = JSON.stringify(snapshotForDisk());
 					lastPushed = body;
@@ -386,6 +389,7 @@ window.__ModuleLoader__.load({
 							method: "POST",
 							headers: { "content-type": "application/json" },
 							body,
+							keepalive: immediate,
 						})
 							.catch(() => undefined)
 							.finally(() => {
@@ -394,7 +398,9 @@ window.__ModuleLoader__.load({
 					} catch (_ignored) {
 						pendingPush = false;
 					}
-				}, 250);
+				};
+				if (immediate) flush();
+				else pushTimer = setTimeout(flush, 250);
 			};
 
 			const applyRemote = (remote) => {
@@ -410,6 +416,7 @@ window.__ModuleLoader__.load({
 				refreshRows();
 				sync(true);
 				notifyPage();
+				refreshPageMemory();
 			};
 
 			/**
@@ -2468,6 +2475,90 @@ window.__ModuleLoader__.load({
 				notifyPage();
 			}), "settings-groups: locale watch");
 
+			// The host exposes its stable settings shell through the sidebar slot's
+			// store handle. Restore via its ordinary openSection action before paint;
+			// direct links to a named page keep their explicitly requested target.
+			ctx.effect(() => {
+				const bindings = new Map();
+				let pendingSection = "", genericOpen = false, disposed = false;
+				const available = (id) => typeof id === "string" && id !== "" && rows.some((row) => row.id === id) && !state.hidden.includes(id);
+				const selected = () => {
+					const nav = document.querySelector(NAV_SEL);
+					if (nav === null) return "";
+					for (const [id, button] of refs) {
+						if (nav.contains(button) && ["true", "page"].includes(button.getAttribute("aria-current"))) return id;
+					}
+					// Grouping can be switched off: map native rows by their labels too.
+					const button = [...nav.children].find((el) => el.tagName === "BUTTON" && !isInjected(el) && ["true", "page"].includes(el.getAttribute("aria-current")));
+					return button ? rows.find((row) => row.label === button.textContent.trim())?.id ?? "" : "";
+				};
+				const remember = (id, closing = false) => {
+					if (!available(id)) return;
+					if (!pageMemoryHydrated) { pendingSection = id; return; }
+					if (state.lastSection !== id) { state.lastSection = id; save(); }
+					if (closing) pushToHost(true);
+				};
+				const attach = () => {
+					let entries = [];
+					try { entries = ctx.slots.entries("sidebar.settings") ?? []; } catch { return; }
+					const alive = new Set();
+					for (const entry of entries) {
+						let shell;
+						try { shell = entry.options?.store?.create?.(); } catch { continue; }
+						const actions = shell?.actions;
+						if (!actions || typeof actions.open !== "function" || typeof actions.close !== "function" || typeof actions.openSection !== "function") continue;
+						alive.add(actions);
+						if (bindings.has(actions)) continue;
+						const open = actions.open, close = actions.close, direct = actions.openSection;
+						const openRemembered = function (...args) {
+							genericOpen = !pageMemoryHydrated;
+							if (available(state.lastSection)) return direct.call(this, state.lastSection);
+							return open.apply(this, args);
+						};
+						const openExplicit = function (id, ...args) { genericOpen = false; remember(id); return direct.call(this, id, ...args); };
+						const closeRemembered = function (...args) { remember(selected(), true); genericOpen = false; return close.apply(this, args); };
+						actions.open = openRemembered; actions.close = closeRemembered; actions.openSection = openExplicit;
+						bindings.set(actions, () => {
+							if (actions.open === openRemembered) actions.open = open;
+							if (actions.close === closeRemembered) actions.close = close;
+							if (actions.openSection === openExplicit) actions.openSection = direct;
+						});
+					}
+					for (const [actions, restore] of bindings) if (!alive.has(actions)) { restore(); bindings.delete(actions); }
+				};
+				refreshPageMemory = () => {
+					if (disposed || !pageMemoryHydrated) return;
+					if (pendingSection) { const id = pendingSection; pendingSection = ""; remember(id); return; }
+					if (genericOpen && document.querySelector(NAV_SEL) && available(state.lastSection)) {
+						genericOpen = false;
+						for (const actions of bindings.keys()) { actions.openSection(state.lastSection); break; }
+					}
+				};
+				const onClick = (event) => {
+					const button = event.target instanceof Element ? event.target.closest("button") : null;
+					if (!button || button.parentElement !== document.querySelector(NAV_SEL) || isInjected(button)) return;
+					genericOpen = false;
+					queueMicrotask(() => { if (!disposed) remember(selected()); });
+				};
+				const watch = new MutationObserver((records) => {
+					const nav = document.querySelector(NAV_SEL);
+					if (!records.some((record) => record.target.parentElement === nav)) return;
+					if (genericOpen && !pageMemoryHydrated) return;
+					remember(selected());
+				});
+				watch.observe(document.body, { subtree: true, attributes: true, attributeFilter: ["aria-current"] });
+				document.addEventListener("click", onClick);
+				const unload = () => { if (pushTimer !== null) pushToHost(true); };
+				window.addEventListener("pagehide", unload);
+				const unsubscribe = ctx.slots.subscribe("sidebar.settings", attach);
+				attach();
+				return () => {
+					disposed = true; watch.disconnect(); unsubscribe?.();
+					document.removeEventListener("click", onClick); window.removeEventListener("pagehide", unload);
+					for (const restore of bindings.values()) restore(); bindings.clear(); refreshPageMemory = () => {};
+				};
+			}, "settings-groups: remember settings page");
+
 			// ---- DOM 观察器（设置面板挂载 / 宿主重渲染）----
 			// 只关心两类变化：设置 dialog 内的 childList，和 dialog 本身的挂载。
 			// 附加风暴看门狗：异常时挂起 2 秒，避免页面被卡死。
@@ -4114,7 +4205,7 @@ window.__ModuleLoader__.load({
 			if (migratedNow) save();
 			sync();
 			// 再跟磁盘那份对一次账（异步；宿主端没加载这条路由就纯 localStorage）
-			hydrateFromHost();
+			hydrateFromHost().finally(() => { pageMemoryHydrated = true; refreshPageMemory(); });
 
 			// 外部改动检测：主人让 AI 直接改 json 时，面板开着 5 秒内自己跟上。
 			// 面板没开就不查，省得白跑请求。
