@@ -1,6 +1,6 @@
 {
   "name": "dsh-settings-groups",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "private": true,
   "type": "module",
   "description": "DeepSeek Harness 设置管理：设置导航分组、排序、隐藏和面板调整，支持全部动效一键开关。 / Settings management with sidebar groups, sorting, visibility, panel controls and an animation switch.",
@@ -33,7 +33,7 @@
     "install-plugin": "node scripts/profile.mjs install",
     "uninstall-plugin": "node scripts/profile.mjs uninstall",
     "check-plugin": "node scripts/profile.mjs check",
-    "test": "node test/host.mjs && node test/run.mjs",
+    "test": "node test/host.mjs && node test/run.mjs && node test/page-memory.mjs",
     "test:browser": "node test/run.mjs",
     "test:host": "node test/host.mjs",
     "test:page-memory": "node test/page-memory.mjs"

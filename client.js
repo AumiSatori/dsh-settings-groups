@@ -2504,7 +2504,8 @@ window.__ModuleLoader__.load({
 					const alive = new Set();
 					for (const entry of entries) {
 						let shell;
-						try { shell = entry.options?.store?.create?.(); } catch { continue; }
+						// SlotService exposes store on the entry, outside row options.
+						try { shell = entry.store?.create?.(); } catch { continue; }
 						const actions = shell?.actions;
 						if (!actions || typeof actions.open !== "function" || typeof actions.close !== "function" || typeof actions.openSection !== "function") continue;
 						alive.add(actions);

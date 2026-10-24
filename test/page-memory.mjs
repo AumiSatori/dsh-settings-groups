@@ -23,7 +23,8 @@ window.__shell={
   },
 };
 window.__nativeShellActions={...__shell.actions};
-window.__ledger.push({name:'sidebar.settings',options:{name:'sidebar.settings',store:{create:()=>window.__shell}}});
+// Native SlotService keeps store on the entry; options contains only row metadata.
+window.__ledger.push({name:'sidebar.settings',options:{},store:{create:()=>window.__shell}});
 render();
 
 document.getElementById("btn-rerender")`)
