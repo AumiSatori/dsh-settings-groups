@@ -3619,8 +3619,8 @@ window.__ModuleLoader__.load({
 				"[data-dsg-switch-active]{background:transparent !important;transition-property:color,box-shadow !important}",
 				"[data-dsg-ghost] [data-dsg-switch-track]::before{transition:none !important}",
 				"@media(prefers-reduced-motion:reduce){[data-dsg-switch-track]::before{transition:none !important}[data-dsg-page=\"in\"]{animation:none !important}}",
-				".dsh-ptweak-header{cursor:grab;user-select:none}",
-				".dsh-ptweak-header:active{cursor:grabbing}",
+				".dsh-ptweak-header{cursor:default;user-select:none}",
+				".dsh-ptweak-header:active{cursor:default}",
 			].join("\n");
 
 			/**
