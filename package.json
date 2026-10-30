@@ -33,10 +33,11 @@
     "install-plugin": "node scripts/profile.mjs install",
     "uninstall-plugin": "node scripts/profile.mjs uninstall",
     "check-plugin": "node scripts/profile.mjs check",
-    "test": "node test/host.mjs && node test/run.mjs && node test/page-memory.mjs",
+    "test": "node test/host.mjs && node test/run.mjs && node test/page-memory.mjs && node test/cross-group-drag.mjs",
     "test:browser": "node test/run.mjs",
     "test:host": "node test/host.mjs",
-    "test:page-memory": "node test/page-memory.mjs"
+    "test:page-memory": "node test/page-memory.mjs",
+    "test:cross-group": "node test/cross-group-drag.mjs"
   },
   "dsh": {
     "bundle": {

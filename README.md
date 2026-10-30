@@ -2,7 +2,7 @@
 
 **设置管理**：给 DeepSeek Harness 的设置面板侧栏做**分组 + 排序 + 隐藏**，调整设置面板尺寸与位置，提供全部动效一键开关。分组标签做成明确的标题层级，展开收起带过渡，条目像手机图标一样拖着走。
 
-设置框标题栏悬停和拖动时保持普通箭头光标。
+设置框标题栏以及左侧导航、右侧管理页的拖动保持普通箭头光标。两侧的设置条目都支持跨组移动，可拖到分组标题（含空组、折叠组）或其他条目前后，也可拖回未分组；未分组为 0 时仍保留接收入口。左右列表即时同步，刷新后保留归属和顺序。
 
 ![展开、收起与搜索](docs/nav-collapse.gif)
 
@@ -204,6 +204,7 @@ node scripts/profile.mjs uninstall --profile desktop
 npm i -D playwright react@18 react-dom@18   # 只有跑测试才需要
 node test/run.mjs            # 真 Chromium：导航、管理操作、动效及拖动配置回归
 node test/host.mjs           # 宿主端路由单测（10 项，不启 DSH）
+node test/cross-group-drag.mjs # 两侧跨组、空组/折叠组/未分组、即时同步与光标回归
 node test/record.mjs         # 重新录 README 的动图（要 ffmpeg）
 ```
 

@@ -872,7 +872,7 @@ window.__ModuleLoader__.load({
 				"[data-dsg-item][data-dsg-nest=\"1\"]{padding-left:30px !important}",
 				".dsg-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;letter-spacing:.01em}",
 				".dsg-count{flex:none;height:18px;line-height:18px;min-width:18px;text-align:center;padding:0 6px;border-radius:999px;background:rgba(127,127,127,.12);color:var(--dsw-alias-label-secondary,#8a8a8a);font-size:11px;font-weight:500;opacity:.9}",
-				".dsg-grip{flex:none;font-size:10px;opacity:0;cursor:grab;transition:opacity .15s ease}",
+				".dsg-grip{flex:none;font-size:10px;opacity:0;cursor:default;transition:opacity .15s ease}",
 				".dsg-chip:hover .dsg-grip{opacity:.55}",
 				"[data-dsg-sidebar-drag=\"0\"] .dsg-grip{opacity:0;cursor:inherit}",
 				// —— 拖拽反馈 ——
@@ -880,6 +880,8 @@ window.__ModuleLoader__.load({
 				"[data-dsg-drop=\"before\"]{box-shadow:inset 0 2px 0 0 var(--dsg-accent,#4a7cf5)}",
 				"[data-dsg-drop=\"after\"]{box-shadow:inset 0 -2px 0 0 var(--dsg-accent,#4a7cf5)}",
 				"[data-dsg-dragging=\"1\"]{opacity:.4}",
+				// Keep the arrow over controls too; removing the drag ghost restores normal cursors.
+				"body:has(> [data-dsg-floating], > [data-dsg-row-floating]),body:has(> [data-dsg-floating], > [data-dsg-row-floating]) *{cursor:default !important}",
 				// —— 条目展开 / 收起：高度 + 淡入淡出 + 轻微位移 ——
 				// height / padding / margin 也一起过渡，否则条目淡出后下面的内容
 				// 会「啪」地往上跳一格（这才是收起动画最容易露馅的地方）。
@@ -910,10 +912,10 @@ window.__ModuleLoader__.load({
 				".dsg-subcard{display:flex;flex-direction:column;gap:6px;padding:16px 18px;border-radius:13px;background:rgba(127,127,127,.055);box-shadow:inset 0 1px 2px rgba(0,0,0,.03)}",
 				".dsg-card{display:flex;flex-direction:column;gap:14px;padding:20px 22px;border-radius:16px;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid rgba(127,127,127,.1);box-shadow:0 1px 2px rgba(0,0,0,.05),0 6px 20px -6px rgba(0,0,0,.1)}",
 				".dsg-card[data-over=\"1\"]{border-color:var(--dsg-accent,#5b5bf6);background:color-mix(in srgb, var(--dsg-accent,#5b5bf6) 5%, transparent)}",
-				".dsg-card[draggable=\"true\"]{cursor:grab;transition:transform .16s cubic-bezier(.2,.7,.3,1),box-shadow .16s ease,opacity .16s ease,border-color .15s ease}",
-				".dsg-card[draggable=\"true\"]:active{cursor:grabbing}",
+				".dsg-card[draggable=\"true\"]{cursor:default;transition:transform .16s cubic-bezier(.2,.7,.3,1),box-shadow .16s ease,opacity .16s ease,border-color .15s ease}",
+				".dsg-card[draggable=\"true\"]:active{cursor:default}",
 				// 「攥在手里」：抬起来一点、微微歪、阴影加重、整体压暗一丝
-				".dsg-card[data-dragging=\"1\"]{cursor:grabbing;position:relative;z-index:3;transform:scale(1.014) rotate(-.18deg);box-shadow:0 4px 10px rgba(0,0,0,.09),0 20px 44px -14px rgba(0,0,0,.22);opacity:.94}",
+				".dsg-card[data-dragging=\"1\"]{cursor:default;position:relative;z-index:3;transform:scale(1.014) rotate(-.18deg);box-shadow:0 4px 10px rgba(0,0,0,.09),0 20px 44px -14px rgba(0,0,0,.22);opacity:.94}",
 				".dsg-card[data-insert=\"before\"]{box-shadow:inset 0 3px 0 -1px var(--dsg-accent,#5b5bf6),0 1px 2px rgba(0,0,0,.05),0 6px 20px -6px rgba(0,0,0,.1)}",
 				".dsg-card[data-insert=\"after\"]{box-shadow:inset 0 -3px 0 -1px var(--dsg-accent,#5b5bf6),0 1px 2px rgba(0,0,0,.05),0 6px 20px -6px rgba(0,0,0,.1)}",
 				// 卡片之间单独拉开：只影响"卡→卡"，别把"标题→第一张卡"也一起推远
@@ -947,10 +949,10 @@ window.__ModuleLoader__.load({
 				// 删除：平时红图标，悬浮翻成红底白字（主人明确要这个反色）
 				".dsg-danger:hover,.dsg-btn.dsg-danger:hover{border-color:var(--dsw-alias-state-error-primary,#e5484d);background:var(--dsw-alias-state-error-primary,#e5484d);color:#fff}",
 				".dsg-rows{display:flex;flex-direction:column;gap:2px}",
-				".dsg-pin,[data-dsg-entry]{cursor:grab;user-select:none}",
+				".dsg-pin,[data-dsg-entry]{cursor:default;user-select:none}",
 				".dsg-rowgrip{touch-action:none}",
 				"[data-dsg-page-dragging=\"1\"]{opacity:.25}",
-				".dsg-pin:active{cursor:grabbing}",
+				".dsg-pin:active{cursor:default}",
 				".dsg-row{display:flex;align-items:center;gap:8px;min-height:34px;padding:4px 8px;border-radius:7px;color:var(--dsw-alias-label-primary,#333);transition:background .12s ease,opacity .12s ease}",
 				".dsg-row:hover{background:var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.1))}",
 				".dsg-row[data-dragging=\"1\"]{opacity:.35}",
@@ -958,7 +960,7 @@ window.__ModuleLoader__.load({
 				".dsg-row[data-over=\"after\"]{box-shadow:inset 0 -2px 0 0 var(--dsg-accent,#4a7cf5)}",
 				".dsg-row[data-stale=\"1\"]{opacity:.55}",
 				".dsg-row[data-stale=\"1\"] .dsg-rowname{text-decoration:line-through}",
-				".dsg-rowgrip{flex:none;width:13px;color:var(--dsw-alias-label-tertiary,#aaa);cursor:grab;font-size:11px;text-align:center}",
+				".dsg-rowgrip{flex:none;width:13px;color:var(--dsw-alias-label-tertiary,#aaa);cursor:default;font-size:11px;text-align:center}",
 				".dsg-rowname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}",
 				// 跟搜索框同一套反馈：悬浮加深边框，聚焦加深 + 灰色荧光圈
 				".dsg-input{box-sizing:border-box;flex:1;min-width:0;height:34px;padding:0 11px;border-radius:8px;border:1px solid rgba(127,127,127,.26);background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary,#333);font-family:inherit;font-size:13.5px;transition:border-color .16s ease,box-shadow .2s ease}",
@@ -1260,9 +1262,12 @@ window.__ModuleLoader__.load({
 					}
 					// 实时让位：每次落点变化才真的重排一次（不是每帧）
 					const before = snapshotRects();
+					const beforePage = snapshotPage();
 					moveGroupTo(gid, hit);
 					sync();
 					flipRects(before);
+					flipPage(beforePage);
+					notifyPage();
 				};
 
 				const onUp = () => cleanup();
@@ -1314,7 +1319,7 @@ window.__ModuleLoader__.load({
 						ghost.dataset.dsgFloating = "1";
 						document.body.appendChild(ghost);
 						el.style.opacity = "0.22";
-						document.body.style.cursor = "grabbing";
+						document.body.style.cursor = "default";
 						lastKey = "\u0000";
 					}, state.sidebarDragDelay);
 				});
@@ -1429,7 +1434,7 @@ window.__ModuleLoader__.load({
 						ghost.dataset.dsgFloating = "1";
 						document.body.appendChild(ghost);
 						el.style.opacity = "0.25";
-						document.body.style.cursor = "grabbing";
+						document.body.style.cursor = "default";
 						lastKey = "\u0000";
 						document.addEventListener("pointermove", onMove, true);
 						document.addEventListener("pointerup", onUp, true);
@@ -1507,9 +1512,12 @@ window.__ModuleLoader__.load({
 					lastKey = key;
 					if (hit === null) return;
 					const before = snapshotRects();
+					const beforePage = snapshotPage();
 					moveCoreTo(id, hit);
 					sync();
 					flipRects(before);
+					flipPage(beforePage);
+					notifyPage();
 				};
 
 				const onUp = () => cleanup();
@@ -1553,7 +1561,7 @@ window.__ModuleLoader__.load({
 						ghost.dataset.dsgFloating = "1";
 						document.body.appendChild(ghost);
 						el.style.opacity = "0.22";
-						document.body.style.cursor = "grabbing";
+						document.body.style.cursor = "default";
 						lastKey = "\u0000";
 					}, state.sidebarDragDelay);
 				});
@@ -1606,7 +1614,7 @@ window.__ModuleLoader__.load({
 						Object.assign(ghost.style, { position: "fixed", left: "0px", top: "0px", width: `${rect.width}px`, height: `${rect.height}px`, margin: "0", pointerEvents: "none", zIndex: "2147483000", transformOrigin: "center", boxShadow: "0 8px 22px rgba(0,0,0,.16)", borderRadius: "8px", background: "var(--dsw-alias-bg-layer-1,#fff)", transition: "none" });
 						document.body.appendChild(ghost);
 						el.dataset.dsgPageDragging = "1";
-						document.body.style.cursor = "grabbing";
+						document.body.style.cursor = "default";
 					};
 					const moveAt = (x, y) => {
 						if (!ghost) return;
@@ -1777,9 +1785,12 @@ window.__ModuleLoader__.load({
 					lastKey = key;
 					if (hit === null) return;
 					const before = snapshotRects();
+					const beforePage = snapshotPage();
 					applyHit(hit);
 					sync();
 					flipRects(before);
+					flipPage(beforePage);
+					notifyPage();
 				};
 
 				const onUp = () => cleanup();
@@ -1823,7 +1834,7 @@ window.__ModuleLoader__.load({
 						ghost.dataset.dsgFloating = "1";
 						document.body.appendChild(ghost);
 						el.style.opacity = "0.22";
-						document.body.style.cursor = "grabbing";
+						document.body.style.cursor = "default";
 						lastKey = "\u0000";
 					}, state.sidebarDragDelay);
 				});
@@ -2348,9 +2359,8 @@ window.__ModuleLoader__.load({
 					}
 				}
 				const loose = looseIds();
-				// 未分组里没有东西就不显示这一行 —— 光秃秃一个「未分组 (0)」只是碍眼。
-				// 代价是少了「拖出分组」的投放目标，但管理页每条都有「移出」按钮兜底。
-				if (state.groups.length > 0 && loose.length > 0) {
+				// Keep an empty ungrouped section available as a cross-group drop target.
+				if (state.groups.length > 0) {
 					seq.push(ensureLooseChip());
 				} else if (looseChip !== null && looseChip.parentNode !== null) {
 					looseChip.remove();
