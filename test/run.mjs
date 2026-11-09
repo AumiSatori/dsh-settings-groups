@@ -1491,8 +1491,14 @@ const switchMid = await switchState()
 check('切换功能时底块真正滑过中间位置', switchMid.y > initialSwitch.y + 1 && switchMid.y < switchMid.target - 1, JSON.stringify(switchMid))
 check('滑动中宿主按钮不再叠加背景动画', switchMid.activeBg === 'rgba(0, 0, 0, 0)', JSON.stringify(switchMid))
 await switchPage.locator('nav [data-section="general"]').evaluate((el) => el.click())
-await switchPage.waitForTimeout(40)
-const switchReverse = await switchState()
+const switchReverseFrame = await switchPage.waitForFunction(({ start, mid }) => {
+	const track = document.querySelector('[data-dsg-switch-track]')
+	if (!track?.querySelector('[data-section="general"][data-dsg-switch-active]')) return false
+	const y = new DOMMatrixReadOnly(getComputedStyle(track, '::before').transform).m42
+	return y > start && y < mid && { y, tracks: document.querySelectorAll('[data-dsg-switch-track]').length }
+}, { start: initialSwitch.y, mid: switchMid.y }, { timeout: 3000 })
+const switchReverse = await switchReverseFrame.jsonValue()
+await switchReverseFrame.dispose()
 check('快速反向从当前位置返回且只有一个底块', switchReverse.y > initialSwitch.y && switchReverse.y < switchMid.y && switchReverse.tracks === 1, JSON.stringify(switchReverse))
 await switchPage.waitForTimeout(330)
 check('反向切换结束后精确落在当前功能', (await switchState()).error < 1, JSON.stringify(await switchState()))

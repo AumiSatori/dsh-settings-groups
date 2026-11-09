@@ -21,8 +21,9 @@ window.__ModuleLoader__.load({
 		const NS = "settings-groups";
 		/** localStorage 键：分组配置 + 各项开关（重启不丢）。 */
 		const STORAGE_KEY = "dsh.settingsGroups.v1";
-		/** 宿主设置面板的导航列表容器。 */
-		const NAV_SEL = '[role="dialog"][aria-modal="true"] > nav > div:last-child';
+		const PT_SEL = '[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]';
+		const NAV_SEL = `${PT_SEL} > nav > div:last-child`;
+		const isHorizontalNav = (list) => list !== null && getComputedStyle(list).flexDirection.startsWith("row");
 		/** 本插件自己的设置页 id。 */
 		const MANAGE_ID = "settings-groups-manage";
 		/**
@@ -468,9 +469,9 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => {
 				// 范围只覆盖插件的界面和设置面板过渡，保持其他页面的行为。
 				const off = 'html[data-dsg-motion="off"]';
-				const panel = '[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]';
+				const panel = PT_SEL;
 				const targets = [panel, `${panel} > nav`, `${panel} > nav *`, `${panel} > nav *::before`, `${panel} > nav *::after`,
-					"[data-dsg-page]", ".dsg-page", ".dsg-page *", ".dsg-page *::before", ".dsg-page *::after", ".dsh-ptweak-split::after", ".dsh-ptweak-header", ".dsh-ptweak-rz", "[data-dsg-floating]", "[data-dsg-row-floating]"];
+					"[data-dsg-page]", ".dsg-page", ".dsg-page *", ".dsg-page *::before", ".dsg-page *::after", ".dsh-ptweak-split::after", ".dsh-ptweak-rz", "[data-dsg-floating]", "[data-dsg-row-floating]"];
 				const style = document.createElement("style");
 				style.dataset.dsgMotionStyle = "1";
 				style.textContent = `${targets.map((selector) => `${off} ${selector}`).join(",")} {animation:none !important;transition:none !important}`;
@@ -861,6 +862,10 @@ window.__ModuleLoader__.load({
 				".dsg-chip:hover{background:var(--dsw-specific-sidebar-nav-item-hover,rgba(127,127,127,.12));color:var(--dsw-alias-label-primary,#333)}",
 				".dsg-chip:active{transform:scale(.97)}",
 				".dsg-chip[aria-current=\"true\"]{color:var(--dsw-alias-label-primary,#333)}",
+				"[data-dsg-sidebar-drag] > :is(.dsg-search,.dsg-chip){flex-shrink:0}",
+				// 新版侧栏的 gap 在行高归零后才消失。把行距交给条目动画一起收起。
+				"[data-dsh-ptweak-grid] [data-dsg-sidebar-drag]{row-gap:0}",
+				"[data-dsh-ptweak-grid] [data-dsg-sidebar-drag] > [data-dsg-item]{margin-bottom:4px}",
 				// 小三角：细线 chevron（`>` 形状），展开时转成 `v`。
 				// 用两条边框拼 L 形再转 -45°，比实心三角轻，跟宿主自己的展开箭头同一种观感。
 				".dsg-caret{flex:none;display:inline-flex;align-items:center;justify-content:center;width:11px;height:11px;opacity:.7;transform-origin:50% 50%;transition:transform .34s cubic-bezier(.34,1.7,.5,1),opacity .22s ease}",
@@ -1164,7 +1169,7 @@ window.__ModuleLoader__.load({
 			let suppressChipClick = false;
 			/** 只保留当前导航拖动，关闭开关时连待触发的长按一起取消。 */
 			let navDragCleanup = null;
-			const sidebarDragAllowed = () => state.enabled && state.sidebarDrag && !legacyRunning();
+			const sidebarDragAllowed = () => state.enabled && state.sidebarDrag && navList?.dataset.dsgSidebarDrag === "1" && !legacyRunning();
 
 			/**
 			 * 手机桌面式拖动：按住配置的等待时间（默认 250ms）浮起 → 克隆一份跟着指针 → 经过别处实时让位 → 松手落位。
@@ -2396,6 +2401,7 @@ window.__ModuleLoader__.load({
 				chips.clear();
 				looseChip = null;
 				if (searchBox !== null && searchBox.parentNode !== null) searchBox.remove();
+				delete nav.dataset.dsgSidebarDrag;
 				delete nav.dataset.dsgSearch;
 				for (const el of nav.querySelectorAll("[data-dsg-hit]")) delete el.dataset.dsgHit;
 				clearDropMarks();
@@ -2406,7 +2412,9 @@ window.__ModuleLoader__.load({
 					if (btn === undefined) continue;
 					resetItemStyles(btn);
 					btn.style.display = "";
-					btn.draggable = false;
+					btn.removeAttribute("draggable");
+					delete btn.dataset.dsgItem;
+					delete btn.dataset.dsgNest;
 					delete btn.dataset.dsgDragging;
 					const expected = anchor === null ? nav.firstElementChild : anchor.nextSibling;
 					if (btn.parentNode !== nav || btn !== expected) nav.insertBefore(btn, expected);
@@ -2435,17 +2443,16 @@ window.__ModuleLoader__.load({
 				try {
 					const nav = findNavList();
 					if (nav === null) { navDragCleanup?.(); return; }
-					nav.dataset.dsgSidebarDrag = state.sidebarDrag ? "1" : "0";
 					refreshRows();
-					if (legacyRunning()) {
-						// 旧插件在跑：退让，不碰 DOM（两边都改会互相打架）
-						if (chips.size > 0 || looseChip !== null) restoreNative(nav);
+					if (!state.enabled || legacyRunning() || isHorizontalNav(nav)) {
+						if (nav.hasAttribute("data-dsg-sidebar-drag")) {
+							navDragCleanup?.();
+							syncRefs(nav);
+							restoreNative(nav);
+						}
 						return;
 					}
-					if (!state.enabled) {
-						restoreNative(nav);
-						return;
-					}
+					nav.dataset.dsgSidebarDrag = state.sidebarDrag ? "1" : "0";
 					syncRefs(nav);
 					bindNavDnd(nav);
 					// 全部导航条目走长按拖动；开关在 pointerdown 时读取，随时切换立即生效。
@@ -3523,16 +3530,11 @@ window.__ModuleLoader__.load({
 			// 的 client.js 里 —— 那个插件一停，侧栏就变回"188px 写死、拉不动、面板挪不了"。
 			// 既然本插件要顶掉它，这份能力就一并接过来。
 			//
-			// 面板结构（宿主 @deepseek-ai/dsh-client-ui-settings-general 的 SettingsPanel）：
-			//   div[role=dialog][aria-modal=true][data-shortcut-modal=settings]
-			//     ├─ nav   导航栏（宿主 CSS 把宽度写死）
-			//     └─ div   内容区（首个子节点是 header）
 			// 尺寸/位移沿用原来的 localStorage 键，之前调好的宽度和位置继续有效。
-			const PT_SEL = '[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]';
 			const PT_KEY = "dsh.settingsPanelTweak.v1";
 			const PT_MIN_NAV = 150;
 			const PT_MIN_CONTENT = 260;
-			const ptFitters = new WeakMap();
+			let ptPanel = null;
 			const ptViewport = () => {
 				const view = window.visualViewport;
 				return { x: view?.offsetLeft ?? 0, y: view?.offsetTop ?? 0, w: view?.width ?? window.innerWidth, h: view?.height ?? window.innerHeight };
@@ -3583,6 +3585,8 @@ window.__ModuleLoader__.load({
 			ptStyle.dataset.dshPtweak = "1";
 			const PT_CSS = [
 				".dsh-ptweak-split{flex:0 0 6px;align-self:stretch;position:relative;cursor:col-resize;background:transparent;z-index:4}",
+				`${PT_SEL}[data-dsh-ptweak-grid]{grid-template-columns:var(--dsg-nav-width) minmax(0,1fr)}`,
+				"[data-dsh-ptweak-grid] > .dsh-ptweak-split{grid-area:2 / 1 / 3 / 2;position:absolute;inset:0 -3px 0 auto;width:6px;touch-action:none}",
 				".dsh-ptweak-split::after{content:'';position:absolute;top:10px;bottom:10px;left:2px;width:2px;border-radius:1px;background:transparent;transition:background .12s}",
 				".dsh-ptweak-split:hover::after,.dsh-ptweak-split[data-dragging='1']::after{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.45))}",
 				".dsh-ptweak-rz{position:absolute;z-index:6;touch-action:none}",
@@ -3603,7 +3607,7 @@ window.__ModuleLoader__.load({
 				"@keyframes dsgPanelIn{from{opacity:0;scale:.965}to{opacity:1;scale:1}}",
 				`${PT_SEL}{animation:dsgPanelIn .24s cubic-bezier(.2,.7,.3,1)}`,
 				`${PT_SEL}[data-dsh-ptweak="1"]{box-sizing:border-box;min-width:min(440px,calc(100vw - 16px));min-height:min(300px,calc(100vh - 16px))}`,
-				`${PT_SEL}[data-dsh-ptweak="1"] > nav ~ div:not(.dsh-ptweak-split):not(.dsh-ptweak-rz){min-width:0}`,
+				`${PT_SEL}[data-dsh-ptweak="1"]:not([data-dsh-ptweak-grid]) > nav ~ div:not(.dsh-ptweak-split):not(.dsh-ptweak-rz){min-width:0}`,
 				// 出：宿主直接把 dialog 卸掉，我们来不及在它身上播动画。
 				// 所以移除瞬间留一张同尺寸快照在原地淡出，人眼看就是面板在退场。
 				// 整个面板同步淡出；内部快照冻结，防止切页动画在克隆体里重播。
@@ -3629,22 +3633,19 @@ window.__ModuleLoader__.load({
 				"[data-dsg-switch-active]{background:transparent !important;transition-property:color,box-shadow !important}",
 				"[data-dsg-ghost] [data-dsg-switch-track]::before{transition:none !important}",
 				"@media(prefers-reduced-motion:reduce){[data-dsg-switch-track]::before{transition:none !important}[data-dsg-page=\"in\"]{animation:none !important}}",
-				".dsh-ptweak-header{cursor:default;user-select:none}",
-				".dsh-ptweak-header:active{cursor:default}",
 			].join("\n");
 
-			/**
-			 * 取内容区。
-			 *
-			 * ⚠️ 不能直接 `nav.nextElementSibling` —— 侧栏分隔条是我们自己插在
-			 * nav 后面的，那样拿到的会是一条 6px 的空 div，切页动画就白播了。
-			 */
-			const ptContentOf = (panel) => {
+			// 旧版把标题栏嵌在正文里。0.2.2 的标题、导航、操作栏和正文是独立网格项。
+			const ptLayoutOf = (panel) => {
 				const nav = panel.querySelector(":scope > nav");
-				if (nav === null) return null;
-				let el = nav.nextElementSibling;
-				while (el !== null && el.classList.contains("dsh-ptweak-split")) el = el.nextElementSibling;
-				return el;
+				if (!nav) return null;
+				const before = nav.previousElementSibling;
+				const title = before?.id && before.id === panel.getAttribute("aria-labelledby") ? before : null;
+				let next = nav.nextElementSibling;
+				if (next?.classList.contains("dsh-ptweak-split")) next = next.nextElementSibling;
+				const content = title ? next?.nextElementSibling : next;
+				if (!content || content.matches(".dsh-ptweak-split, .dsh-ptweak-rz")) return null;
+				return { nav, title, header: title ? next : content.firstElementChild, content };
 			};
 
 			/** 面板最后一次可见时的位置/尺寸，退场快照要靠它定位。 */
@@ -3656,11 +3657,12 @@ window.__ModuleLoader__.load({
 			let ptFrame = null;
 			const ptScrolls = new Map();
 			const ptGhosts = new Map();
-			const ptSnapshotProps = ["display", "flex-direction", "align-items", "justify-content", "gap", "padding", "border", "border-radius", "background", "box-shadow", "font", "color", "overflow-x", "overflow-y", "opacity", "filter"];
+			const ptSnapshotProps = ["display", "grid-template-areas", "grid-template-columns", "grid-template-rows", "flex-direction", "align-items", "justify-content", "gap", "padding", "border", "border-radius", "background", "box-shadow", "font", "color", "overflow-x", "overflow-y", "opacity", "filter"];
 			const ptCapturePanel = (panel) => {
 				if (!panel?.isConnected) return;
-				const nav = panel.querySelector(":scope > nav"), content = ptContentOf(panel);
-				if (!nav || !content) return;
+				const layout = ptLayoutOf(panel);
+				if (!layout) return;
+				const { nav, content } = layout;
 				const rect = panel.getBoundingClientRect();
 				const regions = [panel, nav, content].map((el) => {
 					const cs = getComputedStyle(el), box = el.getBoundingClientRect();
@@ -3770,7 +3772,8 @@ window.__ModuleLoader__.load({
 			};
 			const ptEnsureSwitch = (panel) => {
 				const list = panel.querySelector(":scope > nav > div:last-child");
-				if (!list || ptSwitch?.list === list) return;
+				if (!list || isHorizontalNav(list)) { ptStopSwitch(); return; }
+				if (ptSwitch?.list === list) return;
 				ptStopSwitch();
 				const job = { list, active: null, last: null, raf: 0, followUntil: 0, appearance: true, initialized: false };
 				ptSwitch = job;
@@ -3840,8 +3843,8 @@ window.__ModuleLoader__.load({
 			 * 不加 fill-mode 的话动画一结束元素就回到无 filter 状态，不会一直待在合成层上。
 			 */
 			const ptPlayPageIn = (panel) => {
-				const content = ptContentOf(panel);
-				if (content === null) return;
+				const content = ptLayoutOf(panel)?.content;
+				if (!content) return;
 				content.removeAttribute("data-dsg-page");
 				if (!motionAllowed()) return;
 				void content.offsetWidth;
@@ -3852,19 +3855,34 @@ window.__ModuleLoader__.load({
 			const ptDecorate = (panel) => {
 				delete panel.dataset.dsgGhosted;
 				ptEnsureSwitch(panel);
-				if (panel.dataset.dshPtweak === "1") return;
-				const nav = panel.querySelector(":scope > nav");
-				const content = ptContentOf(panel);
-				if (nav === null || content === null) return;
-				panel.dataset.dshPtweak = "1";
-				const saved = ptRead();
+				const layout = ptLayoutOf(panel);
+				const compact = isHorizontalNav(panel.querySelector(":scope > nav > div:last-child"));
+				if (ptPanel?.panel === panel && ptPanel.nav === layout?.nav && !compact) return;
+				ptPanel?.dispose();
+				ptPanel = null;
+				if (!layout?.header || compact) return;
+				const { nav, title } = layout;
+				const grid = title !== null;
+				const lifetime = new AbortController();
+				const listen = (el, type, fn, capture = false) => el.addEventListener(type, fn, { signal: lifetime.signal, capture });
+				const controls = [];
+				const styles = [
+					[panel, ["width", "height", "max-width", "max-height", "transform", "transition", "will-change", "--dsg-nav-width"]],
+					[nav, ["width", "transition"]],
+				].map(([el, keys]) => [el, keys.map((key) => [key, el.style.getPropertyValue(key), el.style.getPropertyPriority(key)])]);
+				let transitionTimer;
+				let liftedPointer = null;
+				const stopTransition = () => {
+					clearTimeout(transitionTimer);
+					panel.style.transition = "";
+					nav.style.transition = "";
+				};
 
 				// ① 导航栏宽度。宿主的 nav 带内边距：rect 宽度 ≠ style.width，
 				// 直接用 rect 会「每拖一次漂移一个 padding」，统一换算到 style 口径。
 				const split = document.createElement("div");
 				split.className = "dsh-ptweak-split";
 				split.title = "拖动调整设置侧栏宽度（双击复位）";
-				nav.after(split);
 				const navPad = () => {
 					const cs = getComputedStyle(nav);
 					if (cs.boxSizing === "border-box") return 0;
@@ -3875,23 +3893,43 @@ window.__ModuleLoader__.load({
 						(parseFloat(cs.borderRightWidth) || 0)
 					);
 				};
-				const navStyleW = () => nav.getBoundingClientRect().width - navPad();
+				const navStyleW = () => nav.offsetWidth - navPad();
+				const nativeNavW = navStyleW();
+				panel.dataset.dshPtweak = "1";
+				controls.push(split);
+				if (grid) {
+					panel.style.setProperty("--dsg-nav-width", `${nativeNavW}px`);
+					panel.dataset.dshPtweakGrid = "1";
+					panel.appendChild(split);
+				} else {
+					nav.after(split);
+				}
 				const setNavStyleW = (w) => {
-					nav.style.width = `${Math.round(w)}px`;
+					const width = `${Math.round(w)}px`;
+					if (grid) panel.style.setProperty("--dsg-nav-width", width);
+					else nav.style.width = width;
 				};
-				const savedNav = ptNum(saved.navW);
-				if (savedNav !== null) setNavStyleW(ptClamp(savedNav, PT_MIN_NAV, 520));
-				split.addEventListener("dblclick", (ev) => {
+				const maxNavWidth = () => {
+					const available = Math.max(0, panel.clientWidth - (grid ? 0 : 6));
+					return Math.max(0, Math.min(520, available * .38, available - Math.min(PT_MIN_CONTENT, available * .55)) - navPad());
+				};
+				const fitNav = (preferred) => {
+					const max = maxNavWidth();
+					if (!grid && preferred === null && nativeNavW <= max) nav.style.width = "";
+					else setNavStyleW(ptClamp(preferred ?? nativeNavW, Math.min(PT_MIN_NAV, max), max));
+				};
+				listen(split, "dblclick", (ev) => {
 					ev.preventDefault();
-					// 复位要滑回去，不能瞬移（拖动过程中不加过渡，那是跟手）
-					nav.style.transition = motionAllowed() ? "width .28s cubic-bezier(.2,.7,.3,1)" : "";
-					nav.style.width = "";
-					setTimeout(() => {
-						nav.style.transition = "";
-					}, 320);
+					stopTransition();
+					if (motionAllowed()) {
+						if (grid) panel.style.transition = "grid-template-columns .28s cubic-bezier(.22,.8,.26,1)";
+						else nav.style.transition = "width .28s cubic-bezier(.22,.8,.26,1)";
+					}
+					fitNav(null);
+					transitionTimer = setTimeout(stopTransition, 320);
 					ptWrite({ navW: null });
 				});
-				split.addEventListener("pointerdown", (ev) => {
+				listen(split, "pointerdown", (ev) => {
 					if (ev.button !== 0) return;
 					ev.preventDefault();
 					ev.stopPropagation();
@@ -3903,10 +3941,9 @@ window.__ModuleLoader__.load({
 					}
 					const startX = ev.clientX;
 					const startW = navStyleW();
-					const extra = navPad();
 					const move = (e) => {
-						const max = Math.max(PT_MIN_NAV + 40, panel.getBoundingClientRect().width - PT_MIN_CONTENT - extra);
-						setNavStyleW(ptClamp(startW + (e.clientX - startX), PT_MIN_NAV, max));
+						const max = maxNavWidth();
+						setNavStyleW(ptClamp(startW + e.clientX - startX, Math.min(PT_MIN_NAV, max), max));
 					};
 					const up = () => {
 						split.removeEventListener("pointermove", move);
@@ -3915,56 +3952,49 @@ window.__ModuleLoader__.load({
 						delete split.dataset.dragging;
 						ptWrite({ navW: Math.round(navStyleW()) });
 					};
-					split.addEventListener("pointermove", move);
-					split.addEventListener("pointerup", up);
-					split.addEventListener("pointercancel", up);
+					listen(split, "pointermove", move);
+					listen(split, "pointerup", up);
+					listen(split, "pointercancel", up);
 				});
 
-				// ② 拖 header 移动整个面板（落在按钮/输入框上时不抢手势）
-				const dx = ptNum(saved.dx) ?? 0;
-				const dy = ptNum(saved.dy) ?? 0;
-				if (dx !== 0 || dy !== 0) panel.style.transform = ptTransform(dx, dy);
-				// ② 拖 header 移动面板 —— 用委托，不绑死在具体元素上。
-				// React 重建内容区时旧引用会失效，绑死在元素上会静默失灵（双击复位点不动就是这么来的）。
-				const headerOf = (panelEl) => {
-					const contentEl = ptContentOf(panelEl);
-					return contentEl === null ? null : contentEl.firstElementChild;
+				// ② 用当前标题/操作栏判定拖动，避免拿到重渲染前的旧元素。
+				const canMovePanel = (target) => {
+					if (!(target instanceof Element) || target.closest(PT_HIT)) return false;
+					const current = ptLayoutOf(panel);
+					return current?.header?.contains(target) || current?.title?.contains(target);
 				};
-				panel.addEventListener("dblclick", (ev) => {
-					const header = headerOf(panel);
-					if (header === null || !header.contains(ev.target)) return;
-					if (ev.target.closest(PT_HIT) !== null) return;
+				listen(panel, "dblclick", (ev) => {
+					if (!canMovePanel(ev.target)) return;
+					stopTransition();
 					panel.style.transition = motionAllowed() ? "transform .3s cubic-bezier(.2,.7,.3,1)" : "";
 					panel.style.transform = "";
-					setTimeout(() => {
-						panel.style.transition = "";
-					}, 340);
+					transitionTimer = setTimeout(stopTransition, 340);
 					ptWrite({ dx: 0, dy: 0 });
 				});
-				panel.addEventListener("pointerdown", (ev) => {
-					if (ev.button !== 0) return;
-					const header = headerOf(panel);
-					if (header === null || !header.contains(ev.target)) return;
-					if (ev.target.closest(PT_HIT) !== null) return;
+				listen(panel, "pointerdown", (ev) => {
+					if (ev.button !== 0 || !canMovePanel(ev.target)) return;
 					ev.preventDefault();
-					header.classList.add("dsh-ptweak-header");
+					stopTransition();
+					try { ev.target.setPointerCapture(ev.pointerId); } catch { /* Synthetic pointer events have no active pointer. */ }
 					// 小窗口里应用的位移可能已被校正，不能拿未裁剪的旧记忆作拖动起点。
 					const { x: baseX, y: baseY } = ptOffset(panel);
 					const startX = ev.clientX;
 					const startY = ev.clientY;
 					const move = (e) => {
+						liftedPointer = e.pointerId;
+						panel.style.willChange = "transform";
 						ptFitPosition(panel, baseX + (e.clientX - startX), baseY + (e.clientY - startY));
 					};
 					const up = () => {
 						panel.removeEventListener("pointermove", move);
 						panel.removeEventListener("pointerup", up);
 						panel.removeEventListener("pointercancel", up);
-						const m = /translate3d\((-?[\d.]+)px,\s*(-?[\d.]+)px/.exec(panel.style.transform || "");
-						ptWrite({ dx: m ? Math.round(Number(m[1])) : 0, dy: m ? Math.round(Number(m[2])) : 0 });
+						const { x, y } = ptOffset(panel);
+						ptWrite({ dx: x, dy: y });
 					};
-					panel.addEventListener("pointermove", move);
-					panel.addEventListener("pointerup", up);
-					panel.addEventListener("pointercancel", up);
+					listen(panel, "pointermove", move);
+					listen(panel, "pointerup", up);
+					listen(panel, "pointercancel", up);
 				});
 
 				// ③ 四边 + 四角缩放；默认比宿主大一整圈
@@ -3977,7 +4007,7 @@ window.__ModuleLoader__.load({
 					const pref = ptRead();
 					const prefW = ptNum(pref.panelW);
 					const prefH = ptNum(pref.panelH);
-					panel.style.transition = "";
+					stopTransition();
 					// 插件设置页（例如 Remotion）可能用 !important 指定整个 dialog
 					// 的宽度。尺寸归本控制器管理，必须在恢复、拖动和复位时一致覆盖。
 					panel.style.setProperty("max-width", `${maxW}px`, "important");
@@ -3985,24 +4015,33 @@ window.__ModuleLoader__.load({
 					panel.style.setProperty("width", prefW === null ? PT_DEF_W : `${ptClamp(prefW, Math.min(440, maxW), maxW)}px`, "important");
 					panel.style.height = prefH === null ? PT_DEF_H : `${ptClamp(prefH, Math.min(300, maxH), maxH)}px`;
 					// 侧栏也要给正文留位置；只改本次显示，不把大窗口偏好写小。
-					nav.style.width = ptNum(pref.navW) === null ? "" : `${ptClamp(pref.navW, PT_MIN_NAV, 520)}px`;
-					const available = Math.max(0, panel.clientWidth - 6);
-					const navMax = Math.max(0, Math.min(available * .38, available - Math.min(PT_MIN_CONTENT, available * .55)) - navPad());
-					if (navStyleW() > navMax) setNavStyleW(navMax);
+					fitNav(ptNum(pref.navW));
 					ptFitPosition(panel, ptNum(pref.dx) ?? 0, ptNum(pref.dy) ?? 0);
 					ptLastRect = panel.getBoundingClientRect();
 				};
-				ptFitters.set(panel, fitPanel);
+				ptPanel = {
+					panel, nav, fitPanel,
+					dispose() {
+						lifetime.abort();
+						clearTimeout(transitionTimer);
+						for (const el of controls) el.remove();
+						for (const [el, properties] of styles) {
+							for (const [key, value, priority] of properties) el.style.setProperty(key, value, priority);
+						}
+						delete panel.dataset.dshPtweak;
+						delete panel.dataset.dshPtweakGrid;
+						ptLayoutOf(panel)?.content.removeAttribute("data-dsg-page");
+					},
+				};
 				fitPanel();
 
 				const resetBox = () => {
+					stopTransition();
 					panel.style.transition = motionAllowed() ? "width .3s cubic-bezier(.2,.7,.3,1), height .3s cubic-bezier(.2,.7,.3,1)" : "";
 					panel.style.setProperty("width", PT_DEF_W, "important");
 					panel.style.height = PT_DEF_H;
-					setTimeout(() => {
-						panel.style.transition = "";
-					}, 340);
 					ptWrite({ panelW: null, panelH: null });
+					transitionTimer = setTimeout(fitPanel, 340);
 				};
 				for (const [dir, sx, sy] of [
 					["n", 0, -1], ["s", 0, 1], ["e", 1, 0], ["w", -1, 0],
@@ -4012,13 +4051,14 @@ window.__ModuleLoader__.load({
 					handle.className = `dsh-ptweak-rz${dir === "se" ? " dsh-ptweak-grip" : ""}`;
 					handle.dataset.dir = dir;
 					handle.title = "拖动调整设置面板大小（双击复位）";
+					controls.push(handle);
 					panel.appendChild(handle);
-					handle.addEventListener("dblclick", (ev) => {
+					listen(handle, "dblclick", (ev) => {
 						ev.preventDefault();
 						ev.stopPropagation();
 						resetBox();
 					});
-					handle.addEventListener("pointerdown", (ev) => {
+					listen(handle, "pointerdown", (ev) => {
 						if (ev.button !== 0) return;
 						ev.preventDefault();
 						ev.stopPropagation();
@@ -4027,7 +4067,9 @@ window.__ModuleLoader__.load({
 						} catch (_ignored) {
 							/* noop */
 						}
-						const rect = panel.getBoundingClientRect();
+						const startW = panel.offsetWidth;
+						const startH = panel.offsetHeight;
+						const preferredNav = ptNum(ptRead().navW);
 						const { x: baseDx, y: baseDy } = ptOffset(panel);
 						const startX = ev.clientX;
 						const startY = ev.clientY;
@@ -4035,59 +4077,59 @@ window.__ModuleLoader__.load({
 						const maxW = Math.max(1, view.w - 16);
 						const maxH = Math.max(1, view.h - 16);
 						const move = (e) => {
-							const w = sx ? ptClamp(rect.width + sx * (e.clientX - startX), Math.min(440, maxW), maxW) : rect.width;
-							const h = sy ? ptClamp(rect.height + sy * (e.clientY - startY), Math.min(300, maxH), maxH) : rect.height;
+							const w = sx ? ptClamp(startW + sx * (e.clientX - startX), Math.min(440, maxW), maxW) : startW;
+							const h = sy ? ptClamp(startH + sy * (e.clientY - startY), Math.min(300, maxH), maxH) : startH;
 							panel.style.setProperty("width", `${Math.round(w)}px`, "important");
 							panel.style.height = `${Math.round(h)}px`;
+							if (sx) fitNav(preferredNav);
 							// 面板在 overlay 里是 flex 居中的：改尺寸会左右/上下各长一半，
 							// 把平移补回一半，被拖的那条边才会咬住鼠标（否则手感像从中心缩放）
-							const ndx = sx ? baseDx + (sx * (w - rect.width)) / 2 : baseDx;
-							const ndy = sy ? baseDy + (sy * (h - rect.height)) / 2 : baseDy;
+							const ndx = sx ? baseDx + (sx * (w - startW)) / 2 : baseDx;
+							const ndy = sy ? baseDy + (sy * (h - startH)) / 2 : baseDy;
 							ptFitPosition(panel, ndx, ndy);
 						};
 						const up = () => {
 							handle.removeEventListener("pointermove", move);
 							handle.removeEventListener("pointerup", up);
 							handle.removeEventListener("pointercancel", up);
-							const box = panel.getBoundingClientRect();
-							const m = /translate3d\((-?[\d.]+)px,\s*(-?[\d.]+)px/.exec(panel.style.transform || "");
+							const { x, y } = ptOffset(panel);
 							ptWrite({
-								panelW: Math.round(box.width),
-								panelH: Math.round(box.height),
-								dx: m ? Math.round(Number(m[1])) : 0,
-								dy: m ? Math.round(Number(m[2])) : 0,
+								panelW: panel.offsetWidth,
+								panelH: panel.offsetHeight,
+								dx: x,
+								dy: y,
 							});
 						};
-						handle.addEventListener("pointermove", move);
-						handle.addEventListener("pointerup", up);
-						handle.addEventListener("pointercancel", up);
+						listen(handle, "pointermove", move);
+						listen(handle, "pointerup", up);
+						listen(handle, "pointercancel", up);
 					});
 				}
 
 				// 只在真的拖/缩时才把面板提为合成层，松手立刻撤。
 				// 常驻 will-change 会让整个设置面板一直走 GPU 光栅化，文字丢掉次像素渲染
 				// —— 那就是"装上补丁之后设置变糊"的来源。
-				panel.addEventListener("pointerdown", (e) => {
+				listen(panel, "pointerdown", (e) => {
 					const target = e.target;
-					if (!(target instanceof Element)) return;
-					if (target.closest(".dsh-ptweak-split, .dsh-ptweak-rz, .dsh-ptweak-header") === null) return;
+					if (e.button !== 0 || !(target instanceof Element)) return;
+					if (!target.closest(".dsh-ptweak-split, .dsh-ptweak-rz")) return;
+					liftedPointer = e.pointerId;
 					panel.style.willChange = "transform";
 					// 上一次复位的过渡如果还没跑完，这时的编辑会被它拖住 —— 直接掐断
-					panel.style.transition = "";
-					const navEl = panel.querySelector(":scope > nav");
-					if (navEl !== null) navEl.style.transition = "";
+					stopTransition();
 				}, true);
-				const dropLayer = () => {
+				const dropLayer = (e) => {
+					if (e.pointerId !== liftedPointer) return;
+					liftedPointer = null;
 					panel.style.willChange = "";
 					// 拖完立刻记一次：不然关面板时的退场快照会停在拖动前的位置
 					ptLastRect = panel.getBoundingClientRect();
 				};
-				panel.addEventListener("pointerup", dropLayer, true);
-				panel.addEventListener("pointercancel", dropLayer, true);
+				for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) listen(document, type, dropLayer, true);
 				ptCapturePanel(panel);
 			};
 
-			let ptQueued = false;
+			let ptScanTimer = null;
 			const ptObserver = new MutationObserver((mutations) => {
 				// 先看有没有面板被摘掉 —— 这一步必须在扫描新 panel 之前，
 				// 否则 ptLastRect 会被下一次的布局覆盖成 null。
@@ -4104,10 +4146,9 @@ window.__ModuleLoader__.load({
 						if (inner !== null && inner !== undefined) ptGhostOut(inner);
 					}
 				}
-				if (ptQueued) return;
-				ptQueued = true;
-				setTimeout(() => {
-					ptQueued = false;
+				if (ptScanTimer !== null) return;
+				ptScanTimer = setTimeout(() => {
+					ptScanTimer = null;
 					const panel = document.querySelector(PT_SEL);
 					if (panel !== null) {
 						try {
@@ -4132,6 +4173,9 @@ window.__ModuleLoader__.load({
 						}
 					} else {
 						ptStopSwitch();
+						ptPanel?.dispose();
+						ptPanel = null;
+						ptRectObs?.disconnect();
 					}
 				}, 0);
 			});
@@ -4159,7 +4203,11 @@ window.__ModuleLoader__.load({
 					resizeFrame = requestAnimationFrame(() => {
 						resizeFrame = null;
 						const panel = document.querySelector(PT_SEL);
-						if (panel !== null) ptFitters.get(panel)?.();
+						if (panel === null) return;
+						const previous = ptPanel;
+						ptDecorate(panel);
+						if (ptPanel !== null && ptPanel === previous) ptPanel.fitPanel();
+						sync();
 					});
 				};
 				window.addEventListener("resize", fitViewport);
@@ -4179,24 +4227,15 @@ window.__ModuleLoader__.load({
 					window.visualViewport?.removeEventListener("resize", fitViewport);
 					if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
 					ptObserver.disconnect();
+					if (ptScanTimer !== null) clearTimeout(ptScanTimer);
 					ptStopSwitch();
 					if (ptRectObs !== null) {
 						ptRectObs.disconnect();
 						ptRectObs = null;
 					}
 					ptStyle.remove();
-					for (const el of document.querySelectorAll(".dsh-ptweak-split, .dsh-ptweak-rz")) el.remove();
-					const panel = document.querySelector(PT_SEL);
-					if (panel !== null) {
-						delete panel.dataset.dshPtweak;
-						panel.style.transform = "";
-						panel.style.width = "";
-						panel.style.height = "";
-						panel.style.maxWidth = "";
-						panel.style.maxHeight = "";
-						const nav = panel.querySelector(":scope > nav");
-						if (nav !== null) nav.style.width = "";
-					}
+					ptPanel?.dispose();
+					ptPanel = null;
 				};
 			}, "settings-groups: panel tweak");
 

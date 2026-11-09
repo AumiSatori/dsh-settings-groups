@@ -17,6 +17,20 @@
 	#toolbar { margin-bottom: 14px; display: flex; gap: 8px; align-items: center; }
 	#toolbar button { height: 28px; padding: 0 10px; border: 1px solid #d0d3d8; border-radius: 6px; background: #fff; cursor: pointer; font-family: inherit; font-size: 12px; }
 	#log { font-size: 11px; color: #888; margin-left: 8px; }
+	body.grid-fixture { padding: 0; }
+	.grid-fixture #root { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+	.grid-fixture [role="dialog"] { position: relative; pointer-events: auto; display: grid; width: 800px; height: min(800px, calc(100vh - 48px)); max-width: calc(100vw - 48px); grid-template: "title header" "nav content" minmax(0, 1fr) / 188px minmax(0, 1fr); }
+	.grid-fixture #settings-title { grid-area: title; padding: 22px 12px 8px 24px; }
+	.grid-fixture nav { grid-area: nav; width: auto; min-width: 0; min-height: 0; padding: 10px 12px 0; }
+	.grid-fixture #navlist { display: flex; flex-direction: column; gap: 4px; min-height: 0; height: auto; flex: initial; overflow: auto; }
+	.grid-fixture .nav-item { height: 40px; min-height: 0; line-height: 22px; padding: 9px 16px 9px 12px; }
+	.grid-fixture #settings-actions { grid-area: header; display: flex; height: 54px; justify-content: flex-end; padding: 20px 14px 8px 10px; }
+	.grid-fixture #content { grid-area: content; min-width: 0; min-height: 0; padding: 0 24px 24px; }
+	@media (width <= 767px) {
+		html:not([data-windows-titlebar]) .grid-fixture [role="dialog"] { width: 100%; max-width: none; height: 100%; grid-template: "title header" "nav nav" "content content" minmax(0, 1fr) / minmax(0, 1fr) auto; }
+		html:not([data-windows-titlebar]) .grid-fixture #navlist { flex-direction: row; }
+		html:not([data-windows-titlebar]) .grid-fixture .nav-item { flex: 1 0 auto; width: auto; }
+	}
 </style>
 </head>
 <body>
@@ -123,6 +137,8 @@ window.__ModuleLoader__ = {
 };
 
 const h = React.createElement;
+const gridFixture = new URLSearchParams(location.search).has("grid");
+if (gridFixture) document.body.classList.add("grid-fixture");
 
 function Sections() {
 	const [, setTick] = React.useState(0);
@@ -144,7 +160,7 @@ function Sections() {
 	const merged = [...new Map([...SECTIONS, ...ledgerSections].map((s) => [s.id, s])).values()]
 		.sort((a, b) => a.order - b.order);
 	return h("nav", null,
-		h("div", null, "设置"),
+		!gridFixture && h("div", null, "设置"),
 		h("div", { id: "navlist" },
 			merged.map((s, i) => h("button", {
 				key: `${s.id}-${i}`,
@@ -166,8 +182,11 @@ function Dialog() {
 		return () => ledgerSubs.delete(bump);
 	}, []);
 	const manage = window.__ledger.find((e) => e.options.id === "settings-groups-manage");
-	return h("div", { role: "dialog", "aria-modal": "true", "data-shortcut-modal": "settings" },
+	return h("div", { role: "dialog", "aria-modal": "true", "data-shortcut-modal": "settings", "aria-labelledby": gridFixture ? "settings-title" : undefined },
+		gridFixture && h("div", { id: "settings-title" }, "设置"),
 		h(Sections),
+		gridFixture && h("div", { id: "settings-actions" },
+			h("button", { type: "button", onClick: () => document.getElementById("btn-open").click() }, "关闭设置")),
 		h("div", { id: "content" },
 			manage === undefined
 				? h("p", { style: { color: "#999", fontSize: 13 } }, "（管理页尚未注册）")
