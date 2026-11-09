@@ -4129,8 +4129,10 @@ window.__ModuleLoader__.load({
 				ptCapturePanel(panel);
 			};
 
-			let ptScanTimer = null;
+			let ptQueued = false;
+			let ptActive = false;
 			const ptObserver = new MutationObserver((mutations) => {
+				if (!ptActive) return;
 				// 先看有没有面板被摘掉 —— 这一步必须在扫描新 panel 之前，
 				// 否则 ptLastRect 会被下一次的布局覆盖成 null。
 				// 注意不能只比 matches：宿主很可能把 dialog 包在一层 overlay 里整个摘掉，
@@ -4146,9 +4148,13 @@ window.__ModuleLoader__.load({
 						if (inner !== null && inner !== undefined) ptGhostOut(inner);
 					}
 				}
-				if (ptScanTimer !== null) return;
-				ptScanTimer = setTimeout(() => {
-					ptScanTimer = null;
+				if (ptQueued) return;
+				ptQueued = true;
+				// Restore remembered geometry in the same rendering checkpoint as
+				// the host mount. A timer can let the native default size paint first.
+				queueMicrotask(() => {
+					ptQueued = false;
+					if (!ptActive) return;
 					const panel = document.querySelector(PT_SEL);
 					if (panel !== null) {
 						try {
@@ -4177,10 +4183,11 @@ window.__ModuleLoader__.load({
 						ptPanel = null;
 						ptRectObs?.disconnect();
 					}
-				}, 0);
+				});
 			});
 
 			ctx.effect(() => {
+				ptActive = true;
 				ptStyle.textContent = PT_CSS;
 				document.head.appendChild(ptStyle);
 				const captureBeforeClose = (event) => {
@@ -4219,6 +4226,7 @@ window.__ModuleLoader__.load({
 				scan();
 				ptObserver.observe(document.body, { childList: true, subtree: true });
 				return () => {
+					ptActive = false;
 					for (const type of ["pointerdown", "click", "keydown"]) document.removeEventListener(type, captureBeforeClose, true);
 					document.removeEventListener("scroll", captureScroll, true);
 					for (const kill of [...ptGhosts.values()]) kill();
@@ -4227,7 +4235,6 @@ window.__ModuleLoader__.load({
 					window.visualViewport?.removeEventListener("resize", fitViewport);
 					if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
 					ptObserver.disconnect();
-					if (ptScanTimer !== null) clearTimeout(ptScanTimer);
 					ptStopSwitch();
 					if (ptRectObs !== null) {
 						ptRectObs.disconnect();
